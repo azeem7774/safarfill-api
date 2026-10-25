@@ -117,6 +117,7 @@
         <div class="stat"><b id="sIncome">0</b><span>Monthly income (SAR)</span></div>
         <div class="stat"><b id="sAi">0</b><span>AI reads this month</span></div>
         <div class="stat"><b id="sCost">0</b><span>AI cost this month</span></div>
+        <div class="stat"><b id="sFills">0</b><span>Forms filled this month</span></div>
       </div>
 
       <section class="card">
@@ -165,7 +166,7 @@
             <h3 style="margin-top:0">Computers</h3>
             <div class="tablewrap"><table><thead><tr><th>Computer</th><th>Version</th><th>Last seen</th><th></th></tr></thead><tbody id="dDevices"></tbody></table></div>
             <h3>Usage</h3>
-            <div class="tablewrap"><table><thead><tr><th>Month</th><th>Reads</th><th>AI reads</th><th>AI cost</th></tr></thead><tbody id="dUsage"></tbody></table></div>
+            <div class="tablewrap"><table><thead><tr><th>Month</th><th>Reads</th><th>Forms</th><th>AI reads</th><th>AI cost</th></tr></thead><tbody id="dUsage"></tbody></table></div>
             <h3>History</h3>
             <div class="tablewrap"><table><tbody id="dLog"></tbody></table></div>
           </div>
@@ -177,7 +178,7 @@
           <input id="filter" placeholder="Search agency, number or key" style="max-width:260px"></div>
         <div class="tablewrap">
           <table>
-            <thead><tr><th>Key</th><th>Agency</th><th>Plan</th><th>Price</th><th>Status</th><th>Expires</th><th>PCs</th><th>AI used</th><th>Reads</th><th>Last seen</th></tr></thead>
+            <thead><tr><th>Key</th><th>Agency</th><th>Plan</th><th>Price</th><th>Status</th><th>Expires</th><th>PCs</th><th>AI used</th><th>Reads</th><th>Forms filled</th><th>Last seen</th></tr></thead>
             <tbody id="list"></tbody>
           </table>
         </div>
@@ -209,6 +210,12 @@
     </div>
 
     <aside class="side">
+      <section class="card">
+        <h2>Settings</h2>
+        <label for="minVersion">Oldest SafarFill version allowed</label>
+        <div class="row"><input id="minVersion" placeholder="e.g. 1.1.0 (empty = all)" style="flex:1;min-width:0"><button id="saveMin">Save</button></div>
+        <p class="note" style="margin:8px 0 0">Older versions are told to update and stop reading and filling.</p>
+      </section>
       <section class="card">
         <h2>Activity</h2>
         <div class="feed" id="feed"></div>

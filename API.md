@@ -1,4 +1,4 @@
-# SafarFill licence server — API for the extension (v1.2.0)
+# SafarFill licence server — API for the extension (v1.3.0)
 
 Base URL: `https://safarfill-api.azeemhfd.workers.dev`
 Worker name `safarfill-api`, D1 database `safarfill` (binding `DB`). Separate from `fq-relay`: no shared code, database or secrets.
@@ -48,11 +48,23 @@ Reads one passport/iqama image with the AI using the server's key. Nothing is st
 
 Errors: `ai_not_in_plan` (402: AI is off on this licence, e.g. a trial; show the message: "Read with AI is not included in the free trial. Contact Sahl Labs to try it."), `quota` (402), `bad_image`, `too_large`, `ai_busy`, `ai_unavailable`, `ai_refused`, `too_many`, plus the licence errors above.
 
+## POST /v1/fill  (Bearer pass)
+"May I fill?" Call it **every time Fill form is pressed**, before filling. Fill only when the answer is `ok: true`.
+- Body: `{ "portal": "akbar" | "alhind" | "airsial" | "muqeem" }`
+- Answer: `{ ok: true }` (the server counts one form filled for the dashboard).
+- Errors: `portal_not_in_plan` (403), `too_many`, plus the licence errors above. Show the message and do not fill.
+- Offline (network error): do not fill; show "No internet connection. SafarFill needs the internet to check your licence."
+
+## Version check (all calls)
+Send the extension's version in `/v1/session` (`"version": "1.1.0"`). If you set a minimum version in the dashboard, older versions get `update_required` (426) on every call. Show the message; it tells the user to update.
+
 ## GET /v1/ping
 `{ ok: true, version }`. No licence needed.
 
-## Dashboard (v1.2.0)
+## Dashboard (v1.3.0)
 - **Needs your attention**: expired / ending licences, trials just ended, AI limit used or nearly used, agencies asking for another computer, trial agencies that pressed Read with AI, and AI service failures. Each has one-click fixes.
 - **Activity**: everything that happened, including refused attempts and what the agent was shown. The same refusal is recorded once per hour per licence.
+- **Forms filled** per licence and per month (counted by /v1/fill).
+- **Settings → Oldest SafarFill version allowed**: older versions must update.
 - Actions: Payment received (+30 days), + days, change plan, AI test (5/10, trials), +100 AI reads, +1 computer, block/unblock, remove one or all computers.
 - Each licence has its own **monthly price (SAR)**, filled from the plan (Starter 79, Standard 149, trial/owner 0) and editable for extra portals, extra computers or discounts. Monthly income adds up these prices. The price column is added to older databases automatically.

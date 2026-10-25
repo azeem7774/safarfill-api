@@ -87,6 +87,8 @@
         items.push({ lvl: 'info', title: `${who} wants another computer`, text: 'A new computer, or Chrome was reinstalled. Allow one more (+25 SAR/month), or remove the old computer.', acts: [['+1 computer', () => act(e.key, 'add_device_slot')], ['Open', () => openDetail(e.key)], ['Dismiss', () => dismiss(e.id)]] });
       } else if (e.code === 'ai_not_in_trial') {
         items.push({ lvl: 'info', title: `${who} wants to try AI reading`, text: 'Give a small AI test if they insist.', acts: [['Give 5', () => act(e.key, 'ai_test', { amount: 5 })], ['Give 10', () => act(e.key, 'ai_test', { amount: 10 })], ['Dismiss', () => dismiss(e.id)]] });
+      } else if (e.code === 'portal_not_in_plan') {
+        items.push({ lvl: 'info', title: `${who} tried a portal not in their plan`, text: e.what, acts: [['Open', () => openDetail(e.key)], ['Dismiss', () => dismiss(e.id)]] });
       } else if (e.code === 'device_removed') {
         items.push({ lvl: 'warn', title: `${who}: a removed computer is still trying`, text: 'If this is wrong, open the licence and allow the computer again.', acts: [['Open', () => openDetail(e.key)], ['Dismiss', () => dismiss(e.id)]] });
       }
@@ -142,8 +144,8 @@
         <td class="mono">${esc(l.key)}</td><td>${esc(l.agency)}</td>
         <td>${esc(l.plan)}</td><td>${price(l) ? `${price(l)} SAR${l.price != null && l.price !== planPrice(l.plan) ? ' <span class="muted small">custom</span>' : ''}` : '<span class="muted">free</span>'}</td>
         <td>${statusPill(l)}</td><td>${expiryCell(l)}</td><td>${l.devices_used || 0} / ${l.max_devices}</td>
-        <td>${aiCell(l)}</td><td>${l.parse_count || 0}</td><td>${ago(l.last_seen)}</td>
-      </tr>`).join('') || '<tr><td colspan="10" class="muted">No licences yet. Create the first key below.</td></tr>';
+        <td>${aiCell(l)}</td><td>${l.parse_count || 0}</td><td>${l.fill_count || 0}</td><td>${ago(l.last_seen)}</td>
+      </tr>`).join('') || '<tr><td colspan="11" class="muted">No licences yet. Create the first key below.</td></tr>';
 
     const liveOnes = data.licences.filter(live);
     const paid = liveOnes.filter((l) => price(l));
@@ -151,6 +153,8 @@
     $('sTrials').textContent = liveOnes.filter((l) => l.plan === 'trial').length;
     $('sIncome').textContent = paid.reduce((s, l) => s + price(l), 0);
     $('sAi').textContent = data.totals.ai;
+    $('sFills').textContent = data.totals.fills || 0;
+    if (document.activeElement !== $('minVersion')) $('minVersion').value = (data.settings && data.settings.min_version) || '';
     const sar = data.totals.cost * USD_TO_SAR;
     $('sCost').textContent = `${sar.toFixed(sar < 10 ? 2 : 0)} SAR`;
     drawAttention();
@@ -195,7 +199,7 @@
     $('block').hidden = l.status === 'blocked';
     $('unblock').hidden = l.status !== 'blocked';
     $('dDevices').innerHTML = j.devices.map((d) => `<tr><td class="mono">${esc(d.device.slice(0, 8))}…</td><td>${esc(d.version)}</td><td>${ago(d.last_seen)}</td><td><button class="small danger" data-dev="${esc(d.device)}">Remove</button></td></tr>`).join('') || '<tr><td colspan="4" class="muted">Not used on any computer yet.</td></tr>';
-    $('dUsage').innerHTML = j.usage.map((u) => `<tr><td>${esc(u.month)}</td><td>${u.parse_count}</td><td>${u.ai_count}</td><td>${(u.ai_cost_usd * USD_TO_SAR).toFixed(2)} SAR</td></tr>`).join('') || '<tr><td colspan="4" class="muted">No use yet.</td></tr>';
+    $('dUsage').innerHTML = j.usage.map((u) => `<tr><td>${esc(u.month)}</td><td>${u.parse_count}</td><td>${u.fill_count || 0}</td><td>${u.ai_count}</td><td>${(u.ai_cost_usd * USD_TO_SAR).toFixed(2)} SAR</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No use yet.</td></tr>';
     $('dLog').innerHTML = j.log.map((e) => `<tr><td class="muted small">${fmtTime(e.at)}</td><td class="wrap">${esc(e.what)}</td></tr>`).join('');
     if (data) render();
   }
@@ -247,6 +251,11 @@
   $('refreshTop').addEventListener('click', run(load));
   $('filter').addEventListener('input', render);
   $('cPlan').addEventListener('change', planDefaults);
+  $('saveMin').addEventListener('click', run(async () => {
+    const j = await api('/admin/api/action', { action: 'set_min_version', version: $('minVersion').value.trim() });
+    await load();
+    toast(j.min_version ? `Versions older than ${j.min_version} must now update.` : 'All versions allowed.');
+  }));
 
   $('create').addEventListener('click', run(async () => {
     const btn = $('create');

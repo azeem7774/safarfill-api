@@ -108,4 +108,23 @@ await fetch(B + '/v1/ai', { method: 'POST', headers: { authorization: 'Bearer ' 
 const sys = (await get('/admin/api/licences', A)).j.open.find((e) => e.code === 'ai_unavailable');
 ok(sys, 'AI failure shows in attention');
 if (sys) { await post('/admin/api/action', { action: 'dismiss', event_id: sys.id }, A); ok(!(await get('/admin/api/licences', A)).j.open.some((e) => e.code === 'ai_unavailable'), 'dismiss'); }
+// fill check, portals, minimum version
+const fk = await post('/admin/api/licences', { plan: 'starter', agency: 'Fill Co', portals: ['alhind'] }, A);
+const fs = await post('/v1/session', { key: fk.j.key, device: 'dev-fill-0001', version: '1.1.0' });
+const FP = { authorization: 'Bearer ' + fs.j.pass };
+ok((await post('/v1/fill', { portal: 'alhind' }, FP)).j.ok, 'fill allowed portal');
+const notIn = await post('/v1/fill', { portal: 'akbar' }, FP);
+ok(notIn.s === 403 && notIn.j.error === 'portal_not_in_plan', 'fill refused for portal not in plan');
+let LL = (await get('/admin/api/licences', A)).j;
+ok(LL.licences.find((l) => l.key === fk.j.key).fill_count === 1 && LL.totals.fills >= 1, 'forms filled counted');
+ok(LL.open.some((e) => e.code === 'portal_not_in_plan'), 'portal refusal in attention');
+ok((await post('/admin/api/action', { action: 'set_min_version', version: '1.2.0' }, A)).j.min_version === '1.2.0', 'set min version');
+const oldParse = await post('/v1/parse', { lines: [L1, L2] }, FP);
+ok(oldParse.s === 426 && oldParse.j.error === 'update_required', 'old version refused');
+ok((await post('/v1/session', { key: fk.j.key, device: 'dev-fill-0001', version: '1.1.0' })).s === 426, 'old version session refused');
+const newS = await post('/v1/session', { key: fk.j.key, device: 'dev-fill-0001', version: '1.2.0' });
+ok(newS.j.ok && (await post('/v1/fill', { portal: 'alhind' }, { authorization: 'Bearer ' + newS.j.pass })).j.ok, 'new version allowed');
+ok((await get('/admin/api/licences', A)).j.settings.min_version === '1.2.0', 'setting shown');
+await post('/admin/api/action', { action: 'set_min_version', version: '' }, A);
+ok((await post('/v1/fill', { portal: 'alhind' }, FP)).j.ok, 'old allowed again after clearing');
 console.log(`passed ${pass}, failed ${failN}`);

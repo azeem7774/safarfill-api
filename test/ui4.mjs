@@ -1,0 +1,11 @@
+import { chromium } from '/home/claude/.npm-global/lib/node_modules/playwright/index.mjs';
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const p = await b.newPage({ viewport: { width: 1360, height: 900 } });
+const errs = []; p.on('pageerror', (e) => errs.push(e.message)); p.on('console', (m) => m.type() === 'error' && errs.push(m.text()));
+await p.goto('http://localhost:8787/admin');
+await p.fill('#adminKey', 'test-admin-key-1234567890'); await p.click('#signin');
+await p.waitForSelector('#app:not([hidden])');
+await p.fill('#minVersion', '1.1.0'); await p.click('#saveMin'); await p.waitForTimeout(700);
+console.log({ fills: await p.textContent('#sFills'), min: await p.inputValue('#minVersion'), hdr: (await p.textContent('#list')).length > 0, errs });
+await p.fill('#minVersion', ''); await p.click('#saveMin'); await p.waitForTimeout(500);
+await b.close();

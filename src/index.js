@@ -15,7 +15,7 @@ import { TOOL, PROMPT } from './prompt.js';
 import ADMIN_HTML from './admin.html';
 import ADMIN_JS from './admin.client.js.txt';
 
-const API_VERSION = '1.2.0';
+const API_VERSION = '1.3.0';
 const DAY = 86400000;
 const PASS_MS = DAY; // a pass lets the extension keep working offline for up to a day
 
@@ -39,6 +39,7 @@ const MODELS = {
 const LIMITS = {
   parsePerMin: 240,
   aiPerMin: 20,
+  fillPerMin: 120,
   sessionPerMinPerIp: 30,
   adminFailPerMinPerIp: 10,
   maxImageChars: 6_900_000, // about 5 MB of image, Anthropic's per-image limit
@@ -229,6 +230,11 @@ async function requireLicence(env, req) {
     await addEvent(env, lic.key, 'warn', 'device_removed', REFUSED.device_removed, msg, 60);
     return { error: fail(403, 'device_removed', msg) };
   }
+  const minVersion = await getSetting(env, 'min_version');
+  if (minVersion && olderThan(pass.v, minVersion)) {
+    await addEvent(env, lic.key, 'warn', 'update_required', `Uses old SafarFill ${pass.v || '(unknown)'}; ${minVersion} or newer needed`, UPDATE_MSG, 60);
+    return { error: fail(426, 'update_required', UPDATE_MSG) };
+  }
   return { lic, pass, t };
 }
 
@@ -266,6 +272,12 @@ async function session(env, req) {
     return fail(403, problem[0], problem[1], lic ? { expires_at: lic.expires_at } : {});
   }
 
+  const minVersion = await getSetting(env, 'min_version');
+  if (minVersion && olderThan(version, minVersion)) {
+    await addEvent(env, key, 'warn', 'update_required', `Uses old SafarFill ${version || '(unknown)'}; ${minVersion} or newer needed`, UPDATE_MSG, 60);
+    return fail(426, 'update_required', UPDATE_MSG);
+  }
+
   const known = await env.DB.prepare('SELECT 1 FROM devices WHERE key = ?1 AND device = ?2').bind(key, device).first();
   if (known) {
     await env.DB.prepare('UPDATE devices SET last_seen = ?3, version = ?4 WHERE key = ?1 AND device = ?2').bind(key, device, t, version).run();
@@ -282,7 +294,7 @@ async function session(env, req) {
   }
 
   const exp = lic.expires_at ? Math.min(t + PASS_MS, lic.expires_at) : t + PASS_MS;
-  const pass = await signPass(env, { k: key, d: device, p: lic.portals, plan: lic.plan, exp });
+  const pass = await signPass(env, { k: key, d: device, p: lic.portals, plan: lic.plan, v: version, exp });
   const usage = await getUsage(env, key, usageMonth(lic, t));
   return json({ ok: true, pass, pass_expires: exp, licence: licenceView(lic, usage) });
 }
@@ -323,6 +335,27 @@ async function parse(env, req) {
   }
   await addUsage(env, g.lic.key, usageMonth(g.lic, g.t), 1, 0, 0);
   return json(out);
+}
+
+// "May I fill?" Asked by the extension every time Fill form is pressed.
+async function fillCheck(env, req) {
+  const g = await requireLicence(env, req);
+  if (g.error) return g.error;
+  if (await overLimit(env, g.lic.key, 'fill', LIMITS.fillPerMin)) return fail(429, 'too_many', 'Too many fills at once. Wait a minute.');
+  let body = {};
+  try { body = await req.json(); } catch (e) { /* empty body is fine */ }
+  const portal = String(body.portal || '');
+  if (!ALL_PORTALS.includes(portal)) return fail(400, 'bad_portal', 'Unknown portal.');
+  if (!g.lic.portals.includes(portal)) {
+    const msg = 'This portal is not in your plan. Contact Sahl Labs to add it.';
+    await addEvent(env, g.lic.key, 'warn', 'portal_not_in_plan', `Tried to fill ${portal}, which is not in their plan`, msg, 60);
+    return fail(403, 'portal_not_in_plan', msg);
+  }
+  await env.DB.prepare(
+    `INSERT INTO usage (key, month, fill_count) VALUES (?1, ?2, 1)
+     ON CONFLICT (key, month) DO UPDATE SET fill_count = fill_count + 1`
+  ).bind(g.lic.key, usageMonth(g.lic, g.t)).run();
+  return json({ ok: true });
 }
 
 function friendlyAi(status, message) {
@@ -439,13 +472,35 @@ async function requireAdmin(env, req) {
   return fail(401, 'wrong_admin_key', 'Wrong admin password.');
 }
 
-// Adds the price column to a database made before v1.2 (once per running copy of the Worker).
-let priceColumnChecked = false;
-async function ensurePriceColumn(env) {
-  if (priceColumnChecked) return;
-  try { await env.DB.prepare('ALTER TABLE licences ADD COLUMN price INTEGER').run(); } catch (e) { /* already there */ }
-  priceColumnChecked = true;
+// Brings a database made by an older version up to date (once per running copy of the Worker).
+let schemaChecked = false;
+async function ensureSchema(env) {
+  if (schemaChecked) return;
+  for (const sql of [
+    'ALTER TABLE licences ADD COLUMN price INTEGER',
+    'ALTER TABLE usage ADD COLUMN fill_count INTEGER NOT NULL DEFAULT 0',
+    'CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL)',
+  ]) {
+    try { await env.DB.prepare(sql).run(); } catch (e) { /* already there */ }
+  }
+  schemaChecked = true;
 }
+
+async function getSetting(env, name) {
+  const row = await env.DB.prepare('SELECT value FROM settings WHERE name = ?1').bind(name).first();
+  return row ? row.value : '';
+}
+
+// True when version a is older than version b ("1.1.0" < "1.2").
+function olderThan(a, b) {
+  const pa = String(a || '0').split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b || '0').split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) < (pb[i] || 0);
+  }
+  return false;
+}
+const UPDATE_MSG = 'A newer SafarFill is needed. Open chrome://extensions, turn on Developer mode and press Update, or reinstall SafarFill from the Chrome Web Store.';
 const priceOf = (lic) => (lic.price != null ? lic.price : (PRICES[lic.plan] || 0));
 
 const cleanText = (s, n = 200) => String(s == null ? '' : s).trim().slice(0, n);
@@ -457,13 +512,13 @@ async function adminList(env) {
     `SELECT l.*,
        (SELECT COUNT(*) FROM devices d WHERE d.key = l.key) AS devices_used,
        (SELECT MAX(last_seen) FROM devices d WHERE d.key = l.key) AS last_seen,
-       u.parse_count, u.ai_count, u.ai_cost_usd
+       u.parse_count, u.ai_count, u.ai_cost_usd, u.fill_count
      FROM licences l
      LEFT JOIN usage u ON u.key = l.key AND u.month = CASE WHEN l.plan = 'trial' THEN 'trial' ELSE ?1 END
      ORDER BY l.created_at DESC`
   ).bind(monthOf(t)).all();
   const totals = await env.DB.prepare(
-    "SELECT COALESCE(SUM(ai_count),0) AS ai, COALESCE(SUM(ai_cost_usd),0) AS cost, COALESCE(SUM(parse_count),0) AS parse FROM usage WHERE month = ?1 OR month = 'trial'"
+    "SELECT COALESCE(SUM(ai_count),0) AS ai, COALESCE(SUM(ai_cost_usd),0) AS cost, COALESCE(SUM(parse_count),0) AS parse, COALESCE(SUM(fill_count),0) AS fills FROM usage WHERE month = ?1 OR month = 'trial'"
   ).bind(monthOf(t)).first();
   const feed = (await env.DB.prepare(
     `SELECT e.*, l.agency FROM events e LEFT JOIN licences l ON l.key = e.key ORDER BY e.at DESC LIMIT 60`
@@ -471,11 +526,12 @@ async function adminList(env) {
   // Open refusals from the last two days that you may want to act on.
   const open = (await env.DB.prepare(
     `SELECT e.*, l.agency FROM events e LEFT JOIN licences l ON l.key = e.key
-     WHERE e.done = 0 AND e.at > ?1 AND e.code IN ('device_limit', 'ai_not_in_trial', 'ai_unavailable', 'device_removed')
+     WHERE e.done = 0 AND e.at > ?1 AND e.code IN ('device_limit', 'ai_not_in_trial', 'ai_unavailable', 'device_removed', 'portal_not_in_plan')
      ORDER BY e.at DESC LIMIT 30`
   ).bind(t - 2 * DAY).all()).results;
   return json({ ok: true, now: t, month: monthOf(t), plans: PLANS, prices: PRICES, portals: ALL_PORTALS,
-    licences: results.map((r) => ({ ...r, portals: safeList(r.portals) })), totals, feed, open });
+    licences: results.map((r) => ({ ...r, portals: safeList(r.portals) })), totals, feed, open,
+    settings: { min_version: await getSetting(env, 'min_version') } });
 }
 
 async function adminCreate(env, req) {
@@ -514,6 +570,14 @@ async function adminDetail(env, key) {
 
 async function adminAction(env, req) {
   const b = await req.json().catch(() => ({}));
+  if (b.action === 'set_min_version') {
+    const v = cleanText(b.version, 20);
+    if (v && !/^\d+(\.\d+){0,2}$/.test(v)) return fail(400, 'bad_version', 'Write the version like 1.1.0, or leave it empty.');
+    if (v) await env.DB.prepare('INSERT INTO settings (name, value) VALUES (\'min_version\', ?1) ON CONFLICT (name) DO UPDATE SET value = ?1').bind(v).run();
+    else await env.DB.prepare('DELETE FROM settings WHERE name = \'min_version\'').run();
+    await addEvent(env, 'SYSTEM', 'info', 'min_version', v ? `Minimum SafarFill version set to ${v}` : 'Minimum SafarFill version removed', v ? UPDATE_MSG : '');
+    return json({ ok: true, min_version: v });
+  }
   if (b.action === 'dismiss') {
     await env.DB.prepare('UPDATE events SET done = 1 WHERE id = ?1').bind(intOr(b.event_id, 0)).run();
     return json({ ok: true });
@@ -562,6 +626,7 @@ async function adminAction(env, req) {
         f.notes != null ? cleanText(f.notes, 500) : lic.notes,
         f.price != null && f.price !== '' ? Math.max(0, intOr(f.price, priceOf(lic))) : priceOf(lic),
       );
+      await closeEvents(env, key, ['portal_not_in_plan']);
       await addEvent(env, key, 'info', 'details', f.price != null && +f.price !== priceOf(lic) ? `Details changed (price ${priceOf(lic)} → ${intOr(f.price, priceOf(lic))} SAR)` : 'Details changed');
       break;
     }
@@ -621,6 +686,7 @@ export default {
 
     try {
       if (!env.DB) return fail(503, 'not_set_up', 'The database (DB) is not connected to this Worker.');
+      if (path.startsWith('/v1/') || path.startsWith('/admin/api/')) await ensureSchema(env);
 
       if (path === '/') return new Response('SafarFill API', { headers: { 'content-type': 'text/plain' } });
       if (path === '/favicon.ico') return new Response(null, { status: 204 });
@@ -628,6 +694,7 @@ export default {
       if (path === '/v1/session' && req.method === 'POST') return await session(env, req);
       if (path === '/v1/parse' && req.method === 'POST') return await parse(env, req);
       if (path === '/v1/ai' && req.method === 'POST') return await aiRead(env, req);
+      if (path === '/v1/fill' && req.method === 'POST') return await fillCheck(env, req);
 
       if (path === '/admin' && req.method === 'GET') {
         return new Response(ADMIN_HTML, { headers: { 'content-type': 'text/html; charset=utf-8', ...ADMIN_HEADERS } });
@@ -638,7 +705,6 @@ export default {
       if (path.startsWith('/admin/api/')) {
         const denied = await requireAdmin(env, req);
         if (denied) return denied;
-        await ensurePriceColumn(env);
         if (path === '/admin/api/licences' && req.method === 'GET') return await adminList(env);
         if (path === '/admin/api/licences' && req.method === 'POST') return await adminCreate(env, req);
         if (path === '/admin/api/licence' && req.method === 'GET') return await adminDetail(env, cleanText(url.searchParams.get('key'), 20).toUpperCase());

@@ -34,7 +34,13 @@ CREATE TABLE IF NOT EXISTS usage (
   parse_count INTEGER NOT NULL DEFAULT 0,
   ai_count    INTEGER NOT NULL DEFAULT 0,
   ai_cost_usd REAL NOT NULL DEFAULT 0,
+  fill_count  INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (key, month)
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+  name  TEXT PRIMARY KEY,                -- e.g. min_version
+  value TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS rate (
