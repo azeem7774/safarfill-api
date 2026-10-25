@@ -1,0 +1,17 @@
+{
+  "name": "safarfill-api",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "esbuild": "^0.28.2",
+    "wrangler": "^3.114.17"
+  },
+  "type": "module"
+}

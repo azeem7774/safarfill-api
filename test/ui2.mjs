@@ -1,0 +1,22 @@
+import { chromium } from '/home/claude/.npm-global/lib/node_modules/playwright/index.mjs';
+const B = 'http://localhost:8787', A = { authorization: 'Bearer test-admin-key-1234567890', 'content-type': 'application/json' };
+const post = (p, b, h = A) => fetch(B + p, { method: 'POST', headers: h, body: JSON.stringify(b) }).then((r) => r.json());
+// a trial that wants AI
+const k = (await post('/admin/api/licences', { plan: 'trial', agency: 'Khobar Travels', contact: '966588776655' })).key;
+const s = await post('/v1/session', { key: k, device: 'dev-khobar-01' }, {});
+await fetch(B + '/v1/ai', { method: 'POST', headers: { authorization: 'Bearer ' + s.pass }, body: 'QUJDREVGR0hJSktMTU5PUFFS' });
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const p = await b.newPage({ viewport: { width: 1360, height: 1000 } });
+const errs = []; p.on('pageerror', (e) => errs.push(e.message)); p.on('console', (m) => m.type() === 'error' && errs.push(m.text()));
+await p.goto(B + '/admin');
+await p.fill('#adminKey', 'test-admin-key-1234567890'); await p.click('#signin');
+await p.waitForSelector('#app:not([hidden])'); await p.waitForTimeout(400);
+await p.screenshot({ path: '/tmp/claude-0/-home-claude/8e911fe1-bdb3-5d9c-8cf5-c6450afec849/scratchpad/real1.png', fullPage: true });
+await p.click('#attn button:has-text("Give 10")'); await p.waitForTimeout(600);
+const attnAfter = await p.textContent('#attn');
+await p.click('#list tr[data-key="' + k + '"]'); await p.waitForTimeout(500);
+await p.click('#block'); await p.click('#cYes'); await p.waitForTimeout(500);
+await p.screenshot({ path: '/tmp/claude-0/-home-claude/8e911fe1-bdb3-5d9c-8cf5-c6450afec849/scratchpad/real2.png', fullPage: true });
+await p.emulateMedia({ colorScheme: 'dark' }); await p.setViewportSize({ width: 400, height: 900 }); await p.screenshot({ path: '/tmp/claude-0/-home-claude/8e911fe1-bdb3-5d9c-8cf5-c6450afec849/scratchpad/real3.png' });
+console.log({ errs, wantsGone: !attnAfter.includes('Khobar Travels wants to try AI'), hscroll: await p.evaluate(() => document.body.scrollWidth > innerWidth) });
+await b.close();

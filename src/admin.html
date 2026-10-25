@@ -1,0 +1,222 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>SafarFill Admin</title>
+<style>
+  :root {
+    --bg: #f3f5f8; --card: #ffffff; --ink: #172033; --muted: #5b6677; --line: #dce2ea;
+    --brand: #12488c; --brand-ink: #ffffff; --chip: #edf2f9; --ok: #157347; --warn: #9a5800; --bad: #b42318;
+    --ok-bg: #e6f4ec; --warn-bg: #fdf1df; --bad-bg: #fde8e6;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f141b; --card: #161d26; --ink: #e5eaf1; --muted: #9aa5b4; --line: #2a3441;
+      --brand: #5c9bea; --brand-ink: #0b1220; --chip: #1f2833; --ok: #52c48b; --warn: #f0b04d; --bad: #ff7d72;
+      --ok-bg: #12301f; --warn-bg: #352710; --bad-bg: #3a1714; color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { background: var(--brand); color: var(--brand-ink); padding: 12px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  header h1 { font-size: 17px; margin: 0; font-weight: 650; }
+  header .sp { flex: 1; }
+  header button { background: rgba(255,255,255,.15); color: inherit; border-color: rgba(255,255,255,.3); }
+  main { max-width: 1280px; margin: 0 auto; padding: 16px 16px 40px; }
+  #app { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+  @media (max-width: 980px) { #app { grid-template-columns: minmax(0, 1fr); } }
+  .col { display: grid; gap: 16px; min-width: 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; min-width: 0; }
+  h2 { font-size: 15px; margin: 0 0 12px; }
+  h3 { font-size: 12px; margin: 14px 0 8px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+  .note { font-size: 12px; color: var(--muted); }
+  .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
+  .stat { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+  .stat b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+  .stat span { color: var(--muted); font-size: 12px; }
+  label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  input, select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--ink); font: inherit; }
+  input:disabled { opacity: .55; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  button { font: inherit; border: 1px solid var(--line); background: var(--chip); color: var(--ink); padding: 8px 12px; border-radius: 7px; cursor: pointer; }
+  button:hover { filter: brightness(.97); }
+  button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+  button.primary { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); font-weight: 600; }
+  button.danger { color: var(--bad); }
+  button.small { padding: 4px 9px; font-size: 12px; }
+  button:disabled { opacity: .5; cursor: default; }
+  .checks { display: flex; gap: 14px; flex-wrap: wrap; padding-top: 4px; }
+  .checks label { display: flex; gap: 6px; align-items: center; color: var(--ink); font-size: 14px; margin: 0; }
+  .checks input { width: auto; }
+  .tablewrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { font-size: 12px; color: var(--muted); font-weight: 600; }
+  td.wrap { white-space: normal; }
+  tr.click { cursor: pointer; }
+  tr.click:hover td, tr.sel td { background: var(--chip); }
+  .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+  .pill { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .p-ok { background: var(--ok-bg); color: var(--ok); } .p-warn { background: var(--warn-bg); color: var(--warn); }
+  .p-bad { background: var(--bad-bg); color: var(--bad); } .p-muted { background: var(--chip); color: var(--muted); }
+  .muted { color: var(--muted); } .small { font-size: 12px; }
+  .bar { height: 6px; background: var(--chip); border-radius: 3px; overflow: hidden; width: 70px; display: inline-block; vertical-align: middle; margin-left: 6px; }
+  .bar i { display: block; height: 100%; background: var(--brand); }
+  .bar i.hi { background: var(--warn); } .bar i.full { background: var(--bad); }
+  .attn { display: grid; gap: 8px; }
+  .attn-item { display: grid; grid-template-columns: 6px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 10px 12px 10px 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .attn-item .stripe { align-self: stretch; }
+  .attn-item b { display: block; }
+  .s-bad { background: var(--bad); } .s-warn { background: var(--warn); } .s-info { background: var(--brand); }
+  .feed { max-height: 70vh; overflow: auto; }
+  .ev { padding: 10px 0; border-bottom: 1px solid var(--line); display: grid; gap: 3px; }
+  .ev:last-child { border-bottom: 0; }
+  .ev .t { font-size: 12px; color: var(--muted); }
+  .ev .sees { font-size: 12px; background: var(--chip); border-radius: 6px; padding: 6px 8px; }
+  .ev .sees b { color: var(--muted); font-weight: 600; }
+  .side { position: sticky; top: 12px; display: grid; gap: 16px; }
+  @media (max-width: 980px) { .side { position: static; } }
+  .newkey { margin-top: 12px; padding: 12px; border: 1px dashed var(--brand); border-radius: 8px; }
+  .newkey .mono { font-size: 18px; font-weight: 700; }
+  .wa { white-space: pre-wrap; font-size: 12px; background: var(--chip); padding: 8px; border-radius: 6px; margin-top: 8px; }
+  .split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+  @media (max-width: 760px) { .split { grid-template-columns: minmax(0, 1fr); } }
+  .confirm { margin-top: 10px; padding: 10px; border: 1px solid var(--bad); border-radius: 8px; background: var(--bad-bg); }
+  #toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 14px; border-radius: 8px; max-width: min(90vw, 520px); z-index: 5; }
+  #login { max-width: 420px; margin: 60px auto; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>SafarFill Admin</h1>
+  <span class="sp"></span>
+  <span id="who" class="small"></span>
+  <button id="refreshTop" class="small" hidden>Refresh</button>
+  <button id="logout" class="small" hidden>Log out</button>
+</header>
+
+<main>
+  <section id="login" class="card">
+    <h2>Sign in</h2>
+    <label for="adminKey">Admin password (ADMIN_KEY)</label>
+    <input id="adminKey" type="password" autocomplete="current-password">
+    <div class="row" style="margin-top:12px"><button id="signin" class="primary">Sign in</button></div>
+    <p class="note">The password stays in this browser tab only and is cleared when you close it.</p>
+  </section>
+
+  <div id="app" hidden>
+    <div class="col">
+      <div class="stats">
+        <div class="stat"><b id="sPaid">0</b><span>Paying agencies</span></div>
+        <div class="stat"><b id="sTrials">0</b><span>Trials</span></div>
+        <div class="stat"><b id="sIncome">0</b><span>Monthly income (SAR)</span></div>
+        <div class="stat"><b id="sAi">0</b><span>AI reads this month</span></div>
+        <div class="stat"><b id="sCost">0</b><span>AI cost this month</span></div>
+      </div>
+
+      <section class="card">
+        <h2>Needs your attention</h2>
+        <div class="attn" id="attn"></div>
+      </section>
+
+      <section class="card" id="detail" hidden>
+        <div class="row"><h2 id="dTitle" style="margin:0;flex:1"></h2><button id="dClose">Close</button></div>
+        <div class="split" style="margin-top:12px">
+          <div>
+            <div class="grid">
+              <div><label for="eAgency">Agency name</label><input id="eAgency" maxlength="120"></div>
+              <div><label for="eContact">WhatsApp number</label><input id="eContact" maxlength="40"></div>
+              <div><label for="eDevices">Computers</label><input id="eDevices" type="number" min="1" max="50"></div>
+              <div><label for="eAi">AI reads (0 = off, −1 = no limit)</label><input id="eAi" type="number" min="-1"></div>
+              <div><label for="ePrice">Monthly price (SAR)</label><input id="ePrice" type="number" min="0"></div>
+            </div>
+            <div style="margin-top:12px"><label>Portals</label><div class="checks" id="ePortals"></div></div>
+            <div style="margin-top:12px"><label for="eNotes">Notes</label><input id="eNotes" maxlength="500"></div>
+            <div class="row" style="margin-top:12px"><button id="save" class="primary">Save changes</button></div>
+            <h3>Actions</h3>
+            <div class="row">
+              <button id="ext30">Payment received: +30 days</button>
+              <input id="extDays" type="number" min="1" max="3660" placeholder="days" style="width:80px">
+              <button id="extN">+ days</button>
+            </div>
+            <div class="row" style="margin-top:8px">
+              <input id="paidPrice" type="number" min="0" placeholder="price SAR" style="width:110px" title="Monthly price for the new plan (empty = plan price)">
+              <select id="paidPlan" style="width:auto"><option value="starter">Starter</option><option value="standard" selected>Standard</option><option value="owner">Owner</option></select>
+              <button id="makePaid">Change plan</button>
+            </div>
+            <div class="row" style="margin-top:8px">
+              <span id="aiTest" class="row"><button id="ai5">AI test: give 5</button><button id="ai10">AI test: give 10</button></span>
+              <button id="addAi">+100 AI reads</button>
+              <button id="addPc">+1 computer</button>
+            </div>
+            <div class="row" style="margin-top:8px">
+              <button id="block" class="danger">Block</button>
+              <button id="unblock">Unblock</button>
+              <button id="reset" class="danger">Remove all computers</button>
+            </div>
+            <div id="confirmBox"></div>
+          </div>
+          <div>
+            <h3 style="margin-top:0">Computers</h3>
+            <div class="tablewrap"><table><thead><tr><th>Computer</th><th>Version</th><th>Last seen</th><th></th></tr></thead><tbody id="dDevices"></tbody></table></div>
+            <h3>Usage</h3>
+            <div class="tablewrap"><table><thead><tr><th>Month</th><th>Reads</th><th>AI reads</th><th>AI cost</th></tr></thead><tbody id="dUsage"></tbody></table></div>
+            <h3>History</h3>
+            <div class="tablewrap"><table><tbody id="dLog"></tbody></table></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="row" style="margin-bottom:10px"><h2 style="margin:0;flex:1">Licences</h2>
+          <input id="filter" placeholder="Search agency, number or key" style="max-width:260px"></div>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Key</th><th>Agency</th><th>Plan</th><th>Price</th><th>Status</th><th>Expires</th><th>PCs</th><th>AI used</th><th>Reads</th><th>Last seen</th></tr></thead>
+            <tbody id="list"></tbody>
+          </table>
+        </div>
+        <p class="note" style="margin:10px 0 0">Click a row to open it.</p>
+      </section>
+
+      <section class="card">
+        <h2>Create a key</h2>
+        <div class="grid">
+          <div><label for="cPlan">Plan</label>
+            <select id="cPlan">
+              <option value="trial">Trial · built-in reader only</option>
+              <option value="starter">Starter · 79 SAR · 1 portal · 300 AI</option>
+              <option value="standard">Standard · 149 SAR · all portals · 800 AI</option>
+              <option value="owner">Owner · my own computers</option>
+            </select></div>
+          <div><label for="cAgency">Agency name</label><input id="cAgency" maxlength="120"></div>
+          <div><label for="cContact">WhatsApp number</label><input id="cContact" maxlength="40" placeholder="9665XXXXXXXX"></div>
+          <div><label for="cDays">Days</label><input id="cDays" type="number" min="1" max="3660"></div>
+          <div><label for="cPcs">Computers</label><input id="cPcs" type="number" min="1" max="50"></div>
+          <div><label for="cAi">AI reads (0 = off, −1 = no limit)</label><input id="cAi" type="number" min="-1"></div>
+          <div><label for="cPrice">Monthly price (SAR)</label><input id="cPrice" type="number" min="0"></div>
+        </div>
+        <div style="margin-top:12px"><label>Portals</label><div class="checks" id="cPortals"></div></div>
+        <div style="margin-top:12px"><label for="cNotes">Notes</label><input id="cNotes" maxlength="500"></div>
+        <div class="row" style="margin-top:12px"><button id="create" class="primary">Create key</button></div>
+        <div id="newKey"></div>
+      </section>
+    </div>
+
+    <aside class="side">
+      <section class="card">
+        <h2>Activity</h2>
+        <div class="feed" id="feed"></div>
+      </section>
+    </aside>
+  </div>
+</main>
+<div id="toast" hidden></div>
+<script src="/admin/app.js"></script>
+</body>
+</html>

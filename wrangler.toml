@@ -1,0 +1,13 @@
+name = "safarfill-api"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+
+[[rules]]
+type = "Text"
+globs = ["**/*.html", "**/*.txt"]
+fallthrough = true
+
+[[d1_databases]]
+binding = "DB"
+database_name = "safarfill"
+database_id = "local-test"

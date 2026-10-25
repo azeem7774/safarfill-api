@@ -1,0 +1,296 @@
+// SafarFill admin dashboard (runs in the browser, served from /admin/app.js).
+(() => {
+  const STORE_LINK = 'https://chromewebstore.google.com/detail/jmmmjippjhpeepdpbkeejcomcidlffol';
+  const USD_TO_SAR = 3.75;
+  const DAY = 86400000;
+  const NAMES = { akbar: 'Akbar', alhind: 'Alhind', airsial: 'Air Sial', muqeem: 'Muqeem' };
+  const $ = (id) => document.getElementById(id);
+  let adminKey = '';
+  try { adminKey = sessionStorage.getItem('sfAdmin') || ''; } catch (e) { /* storage blocked */ }
+  let data = null;
+  let current = null;
+
+  const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const fmtDate = (t) => (t ? new Date(t).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '');
+  const fmtTime = (t) => (t ? new Date(t).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) : '');
+  const ago = (t) => {
+    if (!t) return '<span class="muted">never</span>';
+    const m = Math.round((Date.now() - t) / 60000);
+    if (m < 2) return 'just now';
+    if (m < 60) return `${m} min ago`;
+    if (m < 1440) return `${Math.round(m / 60)} h ago`;
+    return `${Math.round(m / 1440)} days ago`;
+  };
+
+  function toast(text) {
+    const m = $('toast');
+    m.textContent = text;
+    m.hidden = false;
+    clearTimeout(toast.t);
+    toast.t = setTimeout(() => { m.hidden = true; }, 3800);
+  }
+
+  async function api(path, body) {
+    const res = await fetch(path, {
+      method: body ? 'POST' : 'GET',
+      headers: { authorization: `Bearer ${adminKey}`, ...(body ? { 'content-type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const j = await res.json().catch(() => ({ ok: false, message: `Server error ${res.status}` }));
+    if (res.status === 401) { signOut(); throw new Error(j.message || 'Wrong admin password.'); }
+    if (!j.ok) throw new Error(j.message || 'Failed.');
+    return j;
+  }
+
+  function signOut() {
+    adminKey = '';
+    try { sessionStorage.removeItem('sfAdmin'); } catch (e) { /* ignore */ }
+    $('app').hidden = true; $('login').hidden = false; $('logout').hidden = true; $('refreshTop').hidden = true; $('who').textContent = '';
+  }
+
+  // ---------- licence helpers
+  const expired = (l) => l.expires_at && l.expires_at <= data.now;
+  const planPrice = (plan) => (data.prices && data.prices[plan]) || 0;
+  const price = (l) => (l.price != null ? l.price : planPrice(l.plan));
+  const live = (l) => l.status === 'active' && !expired(l);
+
+  function statusPill(l) {
+    if (l.status === 'blocked') return '<span class="pill p-bad">Blocked</span>';
+    if (l.plan === 'trial' && !l.activated_at) return '<span class="pill p-muted">Not started</span>';
+    if (expired(l)) return `<span class="pill p-bad">${l.plan === 'trial' ? 'Trial over' : 'Expired'}</span>`;
+    if (l.plan === 'trial') return '<span class="pill p-ok">On trial</span>';
+    if (l.expires_at && l.expires_at - data.now < 5 * DAY) return '<span class="pill p-warn">Ending soon</span>';
+    return '<span class="pill p-ok">Active</span>';
+  }
+  function expiryCell(l) {
+    if (l.plan === 'owner' || (!l.expires_at && l.plan !== 'trial')) return '<span class="muted">never</span>';
+    if (!l.expires_at) return `<span class="muted">${l.trial_days} days from first use</span>`;
+    const left = Math.ceil((l.expires_at - data.now) / DAY);
+    return `${fmtDate(l.expires_at)} <span class="muted small">(${left > 0 ? `${left} d left` : `ended ${Math.max(1, -left)} d ago`})</span>`;
+  }
+  function aiCell(l) {
+    const used = l.ai_count || 0;
+    if (l.ai_quota < 0) return `${used} <span class="muted small">no limit</span>`;
+    if (l.ai_quota === 0) return '<span class="muted small">off · built-in only</span>';
+    const p = Math.min(100, Math.round((used / l.ai_quota) * 100));
+    return `${used} / ${l.ai_quota}<span class="bar"><i class="${p >= 100 ? 'full' : p >= 85 ? 'hi' : ''}" style="width:${p}%"></i></span>`;
+  }
+
+  // ---------- needs your attention
+  function attentionItems() {
+    const items = [];
+    for (const e of data.open) {
+      const who = e.agency || 'Unknown agency';
+      if (e.code === 'ai_unavailable') {
+        items.push({ lvl: 'bad', title: 'AI reader is failing for everyone', text: 'Anthropic refused the key or the credit is empty. Top up credit in the Anthropic console, or check ANTHROPIC_KEY.', acts: [['Mark fixed', () => dismiss(e.id)]] });
+      } else if (e.code === 'device_limit') {
+        items.push({ lvl: 'info', title: `${who} wants another computer`, text: 'A new computer, or Chrome was reinstalled. Allow one more (+25 SAR/month), or remove the old computer.', acts: [['+1 computer', () => act(e.key, 'add_device_slot')], ['Open', () => openDetail(e.key)], ['Dismiss', () => dismiss(e.id)]] });
+      } else if (e.code === 'ai_not_in_trial') {
+        items.push({ lvl: 'info', title: `${who} wants to try AI reading`, text: 'Give a small AI test if they insist.', acts: [['Give 5', () => act(e.key, 'ai_test', { amount: 5 })], ['Give 10', () => act(e.key, 'ai_test', { amount: 10 })], ['Dismiss', () => dismiss(e.id)]] });
+      } else if (e.code === 'device_removed') {
+        items.push({ lvl: 'warn', title: `${who}: a removed computer is still trying`, text: 'If this is wrong, open the licence and allow the computer again.', acts: [['Open', () => openDetail(e.key)], ['Dismiss', () => dismiss(e.id)]] });
+      }
+    }
+    for (const l of data.licences) {
+      if (l.status === 'blocked') continue;
+      const used = l.ai_count || 0;
+      if (price(l) && expired(l) && data.now - l.expires_at < 30 * DAY) {
+        items.push({ lvl: 'bad', title: `${l.agency || l.key}: licence expired`, text: `Ended ${fmtDate(l.expires_at)}; SafarFill has stopped for them. Collect ${price(l)} SAR, then add 30 days.`, acts: [['Payment received', () => act(l.key, 'extend', { days: 30 })], ['Open', () => openDetail(l.key)]] });
+      } else if (l.plan === 'trial' && expired(l) && data.now - l.expires_at < 7 * DAY) {
+        items.push({ lvl: 'warn', title: `${l.agency || l.key}: trial over`, text: `Read ${l.parse_count || 0} times during the trial. A good moment to send prices.`, acts: [['Open', () => openDetail(l.key)]] });
+      } else if (price(l) && l.expires_at && !expired(l) && l.expires_at - data.now < 5 * DAY) {
+        items.push({ lvl: 'warn', title: `${l.agency || l.key}: ends in ${Math.ceil((l.expires_at - data.now) / DAY)} days`, text: `Remind them to pay ${price(l)} SAR before ${fmtDate(l.expires_at)}.`, acts: [['Payment received', () => act(l.key, 'extend', { days: 30 })]] });
+      }
+      if (live(l) && l.ai_quota > 0 && used >= l.ai_quota) {
+        items.push({ lvl: 'bad', title: `${l.agency || l.key}: AI reads used up`, text: `All ${l.ai_quota} used. The built-in reader still works.`, acts: [[l.plan === 'trial' ? 'Give 10' : '+100 AI reads', () => act(l.key, l.plan === 'trial' ? 'ai_test' : 'add_ai', { amount: l.plan === 'trial' ? 10 : 100 })]] });
+      } else if (live(l) && l.ai_quota > 0 && l.plan !== 'trial' && used / l.ai_quota >= 0.85) {
+        items.push({ lvl: 'warn', title: `${l.agency || l.key}: ${used} of ${l.ai_quota} AI reads used`, text: 'Close to the monthly limit.', acts: [['+100 AI reads', () => act(l.key, 'add_ai', { amount: 100 })]] });
+      }
+    }
+    const order = { bad: 0, warn: 1, info: 2 };
+    return items.sort((a, b) => order[a.lvl] - order[b.lvl]);
+  }
+
+  function drawAttention() {
+    const box = $('attn');
+    const items = attentionItems();
+    box.innerHTML = items.length ? '' : '<div class="muted">Nothing needs you right now.</div>';
+    for (const it of items) {
+      const div = document.createElement('div');
+      div.className = 'attn-item';
+      div.innerHTML = `<span class="stripe s-${it.lvl}"></span><div><b>${esc(it.title)}</b><span class="small muted">${esc(it.text)}</span></div>`;
+      const btns = document.createElement('div');
+      btns.className = 'row';
+      for (const [label, fn] of it.acts) {
+        const b = document.createElement('button');
+        b.className = 'small';
+        b.textContent = label;
+        b.addEventListener('click', () => Promise.resolve(fn()).catch((e) => toast(e.message)));
+        btns.appendChild(b);
+      }
+      div.appendChild(btns);
+      box.appendChild(div);
+    }
+  }
+
+  // ---------- main render
+  function render() {
+    const q = $('filter').value.trim().toLowerCase();
+    const rows = data.licences.filter((l) => !q || [l.key, l.agency, l.contact, l.notes].join(' ').toLowerCase().includes(q));
+    $('list').innerHTML = rows.map((l) => `
+      <tr class="click${current && current.key === l.key ? ' sel' : ''}" data-key="${esc(l.key)}">
+        <td class="mono">${esc(l.key)}</td><td>${esc(l.agency)}</td>
+        <td>${esc(l.plan)}</td><td>${price(l) ? `${price(l)} SAR${l.price != null && l.price !== planPrice(l.plan) ? ' <span class="muted small">custom</span>' : ''}` : '<span class="muted">free</span>'}</td>
+        <td>${statusPill(l)}</td><td>${expiryCell(l)}</td><td>${l.devices_used || 0} / ${l.max_devices}</td>
+        <td>${aiCell(l)}</td><td>${l.parse_count || 0}</td><td>${ago(l.last_seen)}</td>
+      </tr>`).join('') || '<tr><td colspan="10" class="muted">No licences yet. Create the first key below.</td></tr>';
+
+    const liveOnes = data.licences.filter(live);
+    const paid = liveOnes.filter((l) => price(l));
+    $('sPaid').textContent = paid.length;
+    $('sTrials').textContent = liveOnes.filter((l) => l.plan === 'trial').length;
+    $('sIncome').textContent = paid.reduce((s, l) => s + price(l), 0);
+    $('sAi').textContent = data.totals.ai;
+    const sar = data.totals.cost * USD_TO_SAR;
+    $('sCost').textContent = `${sar.toFixed(sar < 10 ? 2 : 0)} SAR`;
+    drawAttention();
+
+    $('feed').innerHTML = data.feed.map((e) => {
+      const pill = { bad: '<span class="pill p-bad">refused</span> ', warn: '<span class="pill p-warn">attention</span> ', ok: '<span class="pill p-ok">done</span> ' }[e.kind] || '';
+      const who = e.key === 'SYSTEM' ? 'System' : (e.agency || e.key);
+      return `<div class="ev"><span class="t">${fmtTime(e.at)} · ${esc(who)}</span><span>${pill}${esc(e.what)}</span>${e.sees ? `<span class="sees"><b>Agent sees:</b> ${esc(e.sees)}</span>` : ''}</div>`;
+    }).join('') || '<div class="muted">Nothing has happened yet.</div>';
+  }
+
+  async function load() {
+    data = await api('/admin/api/licences');
+    $('app').hidden = false; $('login').hidden = true; $('logout').hidden = false; $('refreshTop').hidden = false;
+    $('who').textContent = `Month ${data.month}`;
+    if (!$('cPortals').children.length) planDefaults();
+    render();
+  }
+
+  // ---------- detail
+  function drawPortals(id, chosen) {
+    $(id).innerHTML = data.portals.map((p) => `<label><input type="checkbox" value="${p}" ${chosen.includes(p) ? 'checked' : ''}> ${NAMES[p] || p}</label>`).join('');
+  }
+  const portalsOf = (id) => [...$(id).querySelectorAll('input:checked')].map((i) => i.value);
+
+  async function openDetail(key) {
+    showDetail(await api(`/admin/api/licence?key=${encodeURIComponent(key)}`));
+    $('detail').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
+  function showDetail(j) {
+    current = j.licence;
+    const l = current;
+    $('detail').hidden = false;
+    $('confirmBox').innerHTML = '';
+    $('dTitle').innerHTML = `<span class="mono">${esc(l.key)}</span> · ${esc(l.agency || 'no name')} · ${esc(l.plan)}${l.status === 'blocked' ? ' · <span class="pill p-bad">Blocked</span>' : ''}`;
+    $('eAgency').value = l.agency; $('eContact').value = l.contact; $('eDevices').value = l.max_devices; $('eAi').value = l.ai_quota; $('eNotes').value = l.notes; $('ePrice').value = price(l);
+    $('paidPrice').value = '';
+    drawPortals('ePortals', l.portals);
+    $('aiTest').hidden = l.plan !== 'trial';
+    $('addAi').hidden = l.plan === 'trial' || l.ai_quota < 0;
+    $('block').hidden = l.status === 'blocked';
+    $('unblock').hidden = l.status !== 'blocked';
+    $('dDevices').innerHTML = j.devices.map((d) => `<tr><td class="mono">${esc(d.device.slice(0, 8))}…</td><td>${esc(d.version)}</td><td>${ago(d.last_seen)}</td><td><button class="small danger" data-dev="${esc(d.device)}">Remove</button></td></tr>`).join('') || '<tr><td colspan="4" class="muted">Not used on any computer yet.</td></tr>';
+    $('dUsage').innerHTML = j.usage.map((u) => `<tr><td>${esc(u.month)}</td><td>${u.parse_count}</td><td>${u.ai_count}</td><td>${(u.ai_cost_usd * USD_TO_SAR).toFixed(2)} SAR</td></tr>`).join('') || '<tr><td colspan="4" class="muted">No use yet.</td></tr>';
+    $('dLog').innerHTML = j.log.map((e) => `<tr><td class="muted small">${fmtTime(e.at)}</td><td class="wrap">${esc(e.what)}</td></tr>`).join('');
+    if (data) render();
+  }
+
+  async function act(key, action, extra = {}) {
+    const j = await api('/admin/api/action', { key, action, ...extra });
+    await load();
+    if (current && current.key === key) showDetail(j);
+    toast('Done.');
+  }
+  async function dismiss(id) {
+    await api('/admin/api/action', { action: 'dismiss', event_id: id });
+    await load();
+  }
+
+  function askConfirm(text, yes) {
+    $('confirmBox').innerHTML = `<div class="confirm"><div>${esc(text)}</div><div class="row" style="margin-top:8px"><button id="cYes" class="small danger">Yes</button><button id="cNo" class="small">Cancel</button></div></div>`;
+    $('cYes').addEventListener('click', () => { $('confirmBox').innerHTML = ''; Promise.resolve(yes()).catch((e) => toast(e.message)); });
+    $('cNo').addEventListener('click', () => { $('confirmBox').innerHTML = ''; });
+  }
+  const run = (fn) => () => Promise.resolve(fn()).catch((e) => toast(e.message));
+
+  // ---------- create
+  function planDefaults() {
+    const plan = $('cPlan').value;
+    const p = data.plans[plan];
+    $('cDays').value = p.days || '';
+    $('cDays').disabled = plan === 'owner';
+    $('cPcs').value = p.max_devices;
+    $('cAi').value = p.ai_quota;
+    $('cPrice').value = planPrice(plan);
+    drawPortals('cPortals', p.portals);
+  }
+  function message(key) {
+    return `Assalam o Alaikum! Your SafarFill licence key:\n${key}\n\n1. Install SafarFill: ${STORE_LINK}\n2. Click the SafarFill icon and enter this key.\n\nContact us if you need help.`;
+  }
+  async function copy(text, done) {
+    try { await navigator.clipboard.writeText(text); toast(done); } catch (e) { toast('Copy was blocked: select the text and copy it.'); }
+  }
+
+  // ---------- events
+  $('signin').addEventListener('click', async () => {
+    adminKey = $('adminKey').value.trim();
+    try { await load(); try { sessionStorage.setItem('sfAdmin', adminKey); } catch (e) { /* ignore */ } $('adminKey').value = ''; }
+    catch (e) { toast(e.message); }
+  });
+  $('adminKey').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('signin').click(); });
+  $('logout').addEventListener('click', signOut);
+  $('refreshTop').addEventListener('click', run(load));
+  $('filter').addEventListener('input', render);
+  $('cPlan').addEventListener('change', planDefaults);
+
+  $('create').addEventListener('click', run(async () => {
+    const btn = $('create');
+    btn.disabled = true;
+    try {
+      const j = await api('/admin/api/licences', {
+        plan: $('cPlan').value, agency: $('cAgency').value, contact: $('cContact').value,
+        days: $('cDays').value, max_devices: $('cPcs').value, ai_quota: $('cAi').value, price: $('cPrice').value,
+        portals: portalsOf('cPortals'), notes: $('cNotes').value,
+      });
+      const msg = message(j.key);
+      $('newKey').innerHTML = `<div class="newkey"><div class="small muted">New key for ${esc($('cAgency').value || 'this agency')}</div><div class="mono">${esc(j.key)}</div><div class="wa">${esc(msg)}</div><div class="row" style="margin-top:8px"><button id="copyKey" class="small">Copy key</button><button id="copyMsg" class="small">Copy WhatsApp message</button></div></div>`;
+      $('copyKey').addEventListener('click', () => copy(j.key, 'Key copied.'));
+      $('copyMsg').addEventListener('click', () => copy(msg, 'Message copied. Paste it in WhatsApp.'));
+      $('cAgency').value = ''; $('cContact').value = ''; $('cNotes').value = '';
+      await load();
+      toast('Key created.');
+    } finally { btn.disabled = false; }
+  }));
+
+  $('list').addEventListener('click', (e) => {
+    const tr = e.target.closest('tr[data-key]');
+    if (tr) openDetail(tr.dataset.key).catch((err) => toast(err.message));
+  });
+  $('dClose').addEventListener('click', () => { $('detail').hidden = true; current = null; render(); });
+  $('save').addEventListener('click', run(() => act(current.key, 'update', { fields: {
+    agency: $('eAgency').value, contact: $('eContact').value, max_devices: $('eDevices').value,
+    ai_quota: $('eAi').value, notes: $('eNotes').value, portals: portalsOf('ePortals'), price: $('ePrice').value,
+  } })));
+  $('ext30').addEventListener('click', run(() => act(current.key, 'extend', { days: 30 })));
+  $('extN').addEventListener('click', run(() => act(current.key, 'extend', { days: $('extDays').value })));
+  $('makePaid').addEventListener('click', () => askConfirm(`Change ${current.agency || current.key} to ${$('paidPlan').value} at ${$('paidPrice').value || planPrice($('paidPlan').value)} SAR/month, valid 30 days from today?`, () => act(current.key, 'make_paid', { plan: $('paidPlan').value, price: $('paidPrice').value })));
+  $('ai5').addEventListener('click', run(() => act(current.key, 'ai_test', { amount: 5 })));
+  $('ai10').addEventListener('click', run(() => act(current.key, 'ai_test', { amount: 10 })));
+  $('addAi').addEventListener('click', run(() => act(current.key, 'add_ai', { amount: 100 })));
+  $('addPc').addEventListener('click', run(() => act(current.key, 'add_device_slot')));
+  $('block').addEventListener('click', () => askConfirm(`Block ${current.agency || current.key}? SafarFill stops working for them at once.`, () => act(current.key, 'block')));
+  $('unblock').addEventListener('click', run(() => act(current.key, 'unblock')));
+  $('reset').addEventListener('click', () => askConfirm('Remove all computers from this licence? Each computer must enter the key again.', () => act(current.key, 'reset_devices')));
+  $('dDevices').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-dev]');
+    if (b) askConfirm('Remove this computer? It must enter the key again.', () => act(current.key, 'remove_device', { device: b.dataset.dev }));
+  });
+
+  if (adminKey) load().catch(() => signOut());
+  setInterval(() => { if (adminKey && document.visibilityState === 'visible') load().catch(() => {}); }, 60000);
+})();

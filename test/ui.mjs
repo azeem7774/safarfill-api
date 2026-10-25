@@ -1,0 +1,15 @@
+import { chromium } from '/home/claude/.npm-global/lib/node_modules/playwright/index.mjs';
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const p = await b.newPage({ viewport: { width: 1280, height: 900 } });
+const errs = []; p.on('pageerror', (e) => errs.push(e.message)); p.on('console', (m) => m.type() === 'error' && errs.push(m.text()));
+await p.goto('http://localhost:8787/admin');
+await p.fill('#adminKey', 'test-admin-key-1234567890'); await p.click('#signin');
+await p.waitForSelector('#app:not([hidden])');
+await p.fill('#cAgency', 'Al Noor Travels'); await p.fill('#cContact', '966512345678'); await p.click('#create');
+await p.waitForSelector('#newKey', { state: 'visible' }); await p.waitForTimeout(500);
+await p.screenshot({ path: process.argv[2] + '/admin1.png', fullPage: true });
+await p.click('#list tr[data-key]'); await p.waitForSelector('#detail', { state: 'visible' }); await p.waitForTimeout(500);
+await p.screenshot({ path: process.argv[2] + '/admin2.png', fullPage: true });
+await p.setViewportSize({ width: 390, height: 800 }); await p.screenshot({ path: process.argv[2] + '/admin3.png' });
+console.log('errors:', errs);
+await b.close();

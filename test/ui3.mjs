@@ -1,0 +1,13 @@
+import { chromium } from '/home/claude/.npm-global/lib/node_modules/playwright/index.mjs';
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const p = await b.newPage({ viewport: { width: 1360, height: 1000 } });
+const errs = []; p.on('pageerror', (e) => errs.push(e.message)); p.on('console', (m) => m.type() === 'error' && errs.push(m.text()));
+await p.goto('http://localhost:8787/admin');
+await p.fill('#adminKey', 'test-admin-key-1234567890'); await p.click('#signin');
+await p.waitForSelector('#app:not([hidden])');
+await p.selectOption('#cPlan', 'starter'); const def = await p.inputValue('#cPrice');
+await p.fill('#cAgency', 'Price UI Test'); await p.fill('#cPrice', '109'); await p.click('#create'); await p.waitForTimeout(700);
+const row = await p.textContent('#list tr:first-child');
+await p.screenshot({ path: '/tmp/claude-0/-home-claude/8e911fe1-bdb3-5d9c-8cf5-c6450afec849/scratchpad/price.png', clip: { x: 0, y: 0, width: 1360, height: 1000 }, fullPage: true });
+console.log({ def, row: row.replace(/\s+/g, ' '), income: await p.textContent('#sIncome'), errs });
+await b.close();
