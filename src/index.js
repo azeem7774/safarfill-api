@@ -15,7 +15,7 @@ import { TOOL, PROMPT } from './prompt.js';
 import ADMIN_HTML from './admin.html';
 import ADMIN_JS from './admin.client.js.txt';
 
-const API_VERSION = '1.5.0';
+const API_VERSION = '1.6.0';
 const DAY = 86400000;
 const PASS_MS = DAY; // a pass lets the extension keep working offline for up to a day
 
@@ -168,6 +168,10 @@ async function getLicence(env, key) {
   if (lic) lic.portals = safeList(lic.portals);
   return lic;
 }
+function parseLines(s) {
+  try { const a = JSON.parse(s); return Array.isArray(a) ? a.filter((l) => Array.isArray(l) && l.length === 2) : []; } catch (e) { return []; }
+}
+
 function safeList(s) {
   try { const a = JSON.parse(s); return Array.isArray(a) ? a.filter((p) => ALL_PORTALS.includes(p)) : []; } catch (e) { return []; }
 }
@@ -506,6 +510,10 @@ async function ensureSchema(env) {
     'ALTER TABLE licences ADD COLUMN price INTEGER',
     'ALTER TABLE usage ADD COLUMN fill_count INTEGER NOT NULL DEFAULT 0',
     'CREATE TABLE IF NOT EXISTS settings (name TEXT PRIMARY KEY, value TEXT NOT NULL)',
+    `CREATE TABLE IF NOT EXISTS quotes (id INTEGER PRIMARY KEY AUTOINCREMENT, created_at INTEGER NOT NULL, agency TEXT NOT NULL DEFAULT '',
+      contact TEXT NOT NULL DEFAULT '', plan TEXT NOT NULL, portals TEXT NOT NULL, max_devices INTEGER NOT NULL, ai_quota INTEGER NOT NULL,
+      discount TEXT NOT NULL DEFAULT '', lines TEXT NOT NULL, price INTEGER NOT NULL, valid_until INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'sent', key TEXT, notes TEXT NOT NULL DEFAULT '')`,
   ]) {
     try { await env.DB.prepare(sql).run(); } catch (e) { /* already there */ }
   }
@@ -591,11 +599,15 @@ async function adminList(env) {
   ).bind(t - 2 * DAY).all()).results;
   return json({ ok: true, now: t, month: monthOf(t), plans: PLANS, prices: PRICES, rates: await getRates(env), portals: ALL_PORTALS,
     licences: results.map((r) => ({ ...r, portals: safeList(r.portals) })), totals, feed, open,
-    settings: { min_version: await getSetting(env, 'min_version'), support: await getSupport(env) } });
+    quotes: (await env.DB.prepare('SELECT * FROM quotes ORDER BY id DESC LIMIT 50').all()).results.map((q) => ({ ...q, portals: safeList(q.portals), lines: parseLines(q.lines) })),
+    settings: { min_version: await getSetting(env, 'min_version'), support: await getSupport(env), payment: await getSetting(env, 'payment') } });
 }
 
 async function adminCreate(env, req) {
-  const b = await req.json().catch(() => ({}));
+  return createLicence(env, await req.json().catch(() => ({})));
+}
+
+async function createLicence(env, b) {
   const plan = PLANS[b.plan] ? b.plan : null;
   if (!plan) return fail(400, 'bad_plan', 'Choose a plan.');
   const d = PLANS[plan];
@@ -618,8 +630,68 @@ async function adminCreate(env, req) {
     cleanText(b.notes, 500), t, discount,
   ).run();
   const total = await reprice(env, key);
-  await addEvent(env, key, 'info', 'created', `Key created (${plan}${total ? `, ${total} SAR/month` : ''})`);
+  await addEvent(env, key, 'info', 'created', `Key created (${plan}${total ? `, ${total} SAR/month` : ''})${b.from_quote ? ` from quote Q-${String(b.from_quote).padStart(4, '0')}` : ''}`);
   return json({ ok: true, key });
+}
+
+// ---------------------------------------------------------------- quotes
+
+const QUOTE_DAYS = 7;
+
+async function adminQuote(env, req) {
+  const b = await req.json().catch(() => ({}));
+  const plan = b.plan === 'starter' || b.plan === 'standard' ? b.plan : null;
+  if (!plan) return fail(400, 'bad_plan', 'Quotes are for Starter or Standard.');
+  const d = PLANS[plan];
+  const portals = Array.isArray(b.portals) ? b.portals.filter((p) => ALL_PORTALS.includes(p)) : d.portals;
+  if (!portals.length) return fail(400, 'no_portals', 'Choose at least one portal.');
+  const discount = cleanText(b.discount, 10).replace(/\s/g, '');
+  if (!DISCOUNT_RE.test(discount)) return fail(400, 'bad_discount', 'Write the discount as SAR (e.g. 20) or percent (e.g. 10%).');
+  const lic = { plan, portals, max_devices: Math.max(1, intOr(b.max_devices, d.max_devices)), ai_quota: Math.max(d.ai_quota, intOr(b.ai_quota, d.ai_quota)) };
+  const q = quote(lic, discount, await getRates(env));
+  const t = now();
+  const r = await env.DB.prepare(
+    `INSERT INTO quotes (created_at, agency, contact, plan, portals, max_devices, ai_quota, discount, lines, price, valid_until, status, notes)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'sent', ?12)`
+  ).bind(t, cleanText(b.agency, 120), cleanText(b.contact, 40), plan, JSON.stringify(portals), lic.max_devices, lic.ai_quota,
+    discount, JSON.stringify(q.lines), q.total, t + QUOTE_DAYS * DAY, cleanText(b.notes, 500)).run();
+  const id = r.meta.last_row_id;
+  await addEvent(env, 'SYSTEM', 'info', 'quote', `Quote Q-${String(id).padStart(4, '0')} for ${cleanText(b.agency, 120) || 'an agency'}: ${q.total} SAR/month`);
+  return json({ ok: true, quote: await getQuote(env, id) });
+}
+
+async function getQuote(env, id) {
+  const q = await env.DB.prepare('SELECT * FROM quotes WHERE id = ?1').bind(intOr(id, 0)).first();
+  if (q) { q.portals = safeList(q.portals); q.lines = parseLines(q.lines); }
+  return q;
+}
+
+async function quoteAction(env, b) {
+  const q = await getQuote(env, b.id);
+  if (!q) return fail(404, 'not_found', 'No such quote.');
+  const no = `Q-${String(q.id).padStart(4, '0')}`;
+  if (b.action === 'quote_status') {
+    const st = ['sent', 'declined'].includes(b.status) ? b.status : null;
+    if (!st || q.status === 'accepted') return fail(400, 'bad_status', 'This quote cannot be changed.');
+    await env.DB.prepare('UPDATE quotes SET status = ?2 WHERE id = ?1').bind(q.id, st).run();
+    await addEvent(env, 'SYSTEM', 'info', 'quote', `${no} (${q.agency || 'agency'}) marked ${st}`);
+    return json({ ok: true, quote: await getQuote(env, q.id) });
+  }
+  // quote_accept: make the licence with exactly the quoted settings and price.
+  if (q.status === 'accepted') return fail(400, 'already', `${no} already has a key: ${q.key}`);
+  const res = await createLicence(env, { plan: q.plan, agency: q.agency, contact: q.contact, portals: q.portals, max_devices: q.max_devices,
+    ai_quota: q.ai_quota, discount: q.discount, notes: q.notes, from_quote: q.id });
+  const made = await res.json();
+  if (!made.ok) return json(made, 400);
+  const lic = await getLicence(env, made.key);
+  const now_ = quote(lic, lic.discount, await getRates(env));
+  if (now_.total !== q.price) {
+    // Add-on prices changed since the quote: keep the quoted price.
+    await env.DB.prepare('UPDATE licences SET discount = ?2 WHERE key = ?1').bind(made.key, String(Math.max(0, now_.subtotal - q.price))).run();
+    await reprice(env, made.key);
+  }
+  await env.DB.prepare("UPDATE quotes SET status = 'accepted', key = ?2 WHERE id = ?1").bind(q.id, made.key).run();
+  return json({ ok: true, key: made.key, quote: await getQuote(env, q.id) });
 }
 
 async function adminDetail(env, key) {
@@ -662,6 +734,12 @@ async function adminAction(env, req) {
     await addEvent(env, 'SYSTEM', 'info', 'rates', `Add-on prices: portal ${r.portal}, computer ${r.pc}, 100 AI reads ${r.ai100} SAR`);
     return json({ ok: true, rates: r });
   }
+  if (b.action === 'set_payment') {
+    await setSetting(env, 'payment', String(b.text || '').trim().slice(0, 800));
+    await addEvent(env, 'SYSTEM', 'info', 'payment', 'Payment details for quotes updated');
+    return json({ ok: true });
+  }
+  if (b.action === 'quote_status' || b.action === 'quote_accept') return quoteAction(env, b);
   if (b.action === 'dismiss') {
     await env.DB.prepare('UPDATE events SET done = 1 WHERE id = ?1').bind(intOr(b.event_id, 0)).run();
     return json({ ok: true });
@@ -803,6 +881,7 @@ export default {
         if (path === '/admin/api/licences' && req.method === 'POST') return await adminCreate(env, req);
         if (path === '/admin/api/licence' && req.method === 'GET') return await adminDetail(env, cleanText(url.searchParams.get('key'), 20).toUpperCase());
         if (path === '/admin/api/action' && req.method === 'POST') return await adminAction(env, req);
+        if (path === '/admin/api/quotes' && req.method === 'POST') return await adminQuote(env, req);
       }
       return fail(404, 'not_found', 'Not found.');
     } catch (e) {

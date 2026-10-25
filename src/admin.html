@@ -44,7 +44,7 @@
   .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
   .grid3 label { font-size: 11px; }
   label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
-  input, select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--ink); font: inherit; }
+  input, select, textarea { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--ink); font: inherit; }
   input:disabled { opacity: .55; }
   .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -95,6 +95,31 @@
   #toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 14px; border-radius: 8px; max-width: min(90vw, 520px); z-index: 5; }
   #login { max-width: 420px; margin: 60px auto; }
   [hidden] { display: none !important; }
+  .qbtns { display: flex; gap: 6px; }
+  #printArea { display: none; }
+  @media print {
+    @page { size: A4; margin: 16mm; }
+    body { background: #fff !important; }
+    body > *:not(#printArea) { display: none !important; }
+    #printArea { display: block; color: #172033; font-size: 13px; }
+  }
+  .pq-head { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 3px solid #14498f; padding-bottom: 14px; }
+  .pq-brand { font-size: 26px; font-weight: 800; color: #14498f; letter-spacing: -.02em; }
+  .pq-brand small { display: block; font-size: 13px; font-weight: 500; color: #5b6677; letter-spacing: 0; }
+  .pq-title { text-align: right; }
+  .pq-title b { display: block; font-size: 20px; letter-spacing: .08em; }
+  .pq-meta { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 18px 0; }
+  .pq-meta .k { font-size: 11px; color: #5b6677; text-transform: uppercase; letter-spacing: .05em; }
+  .pq-table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  .pq-table th, .pq-table td { padding: 9px 10px; border-bottom: 1px solid #dce2ea; text-align: left; white-space: normal; color: #172033; }
+  .pq-table th { background: #eef2f8; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: #5b6677; }
+  .pq-table td.n, .pq-table th.n { text-align: right; }
+  .pq-table tr.tot td { font-weight: 800; font-size: 15px; border-bottom: 0; border-top: 2px solid #172033; }
+  .pq-box { margin-top: 18px; padding: 12px 14px; border: 1px solid #dce2ea; border-radius: 8px; }
+  .pq-box h4 { margin: 0 0 6px; font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: #5b6677; }
+  .pq-box ul { margin: 0; padding-left: 18px; }
+  .pq-pre { white-space: pre-wrap; }
+  .pq-foot { margin-top: 24px; font-size: 11px; color: #5b6677; border-top: 1px solid #dce2ea; padding-top: 10px; }
 </style>
 </head>
 <body>
@@ -193,7 +218,7 @@
       </section>
 
       <section class="card">
-        <h2>Create a key</h2>
+        <h2>Create a key or a quote</h2>
         <div class="grid">
           <div><label for="cPlan">Plan</label>
             <select id="cPlan">
@@ -212,8 +237,19 @@
         <div style="margin-top:12px"><label>Portals</label><div class="checks" id="cPortals"></div></div>
         <div class="quote" id="cQuote"></div>
         <div style="margin-top:12px"><label for="cNotes">Notes</label><input id="cNotes" maxlength="500"></div>
-        <div class="row" style="margin-top:12px"><button id="create" class="primary">Create key</button></div>
+        <div class="row" style="margin-top:12px"><button id="create" class="primary">Create key</button><button id="saveQuote">Save as quote</button></div>
+        <p class="note" style="margin:6px 0 0">A quote does not make a key. When the agency agrees, press "Accept → key" in Quotes.</p>
         <div id="newKey"></div>
+      </section>
+
+      <section class="card">
+        <h2>Quotes</h2>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>No.</th><th>Date</th><th>Agency</th><th>Plan</th><th>Monthly</th><th>Valid until</th><th>Status</th><th></th></tr></thead>
+            <tbody id="quotes"></tbody>
+          </table>
+        </div>
       </section>
     </div>
 
@@ -236,6 +272,9 @@
         <label for="supEmail">Support email</label>
         <div class="row"><input id="supEmail" placeholder="e.g. help@…" style="flex:1;min-width:0"><button id="saveSup">Save</button></div>
         <p class="note" style="margin:8px 0 0">Shown to agents as the "WhatsApp us" button in SafarFill.</p>
+        <label for="payText" style="margin-top:14px">Payment details (printed on quotes)</label>
+        <textarea id="payText" rows="4" maxlength="800" placeholder="Bank: … IBAN: …&#10;STC Pay: …&#10;JazzCash: …"></textarea>
+        <div class="row" style="margin-top:8px"><button id="savePay">Save</button></div>
       </section>
       <section class="card">
         <h2>Activity</h2>
@@ -245,6 +284,7 @@
   </div>
 </main>
 <div id="toast" hidden></div>
+<div id="printArea"></div>
 <script src="/admin/app.js"></script>
 </body>
 </html>

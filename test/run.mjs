@@ -151,4 +151,19 @@ await post('/admin/api/action', { key: pk.j.key, action: 'add_ai', amount: 100 }
 ok((await pl()).price === 149 + 60 + 20 - 20, 'new rates on next change: ' + (await pl()).price);
 const tr = await post('/admin/api/licences', { plan: 'trial', max_devices: 3 }, A);
 ok((await get('/admin/api/licences', A)).j.licences.find((l) => l.key === tr.j.key).price === 0, 'trial free');
+// quotes (rates are 40/30/20 here)
+ok((await post('/admin/api/quotes', { plan: 'trial' }, A)).s === 400, 'trial quote refused');
+const qq = await post('/admin/api/quotes', { plan: 'starter', agency: 'Quote Co', contact: '966511111111', portals: ['akbar', 'alhind'], max_devices: 2, discount: '10' }, A);
+ok(qq.j.ok && qq.j.quote.price === 79 + 40 + 30 - 10 && qq.j.quote.status === 'sent', 'quote saved ' + JSON.stringify(qq.j.quote && qq.j.quote.lines));
+await post('/admin/api/action', { action: 'set_rates', rates: { portal: 50, pc: 50, ai100: 50 } }, A);
+const qa = await post('/admin/api/action', { action: 'quote_accept', id: qq.j.quote.id }, A);
+const ql = (await get('/admin/api/licences', A)).j;
+const qlic = ql.licences.find((l) => l.key === qa.j.key);
+ok(qa.j.ok && qlic && qlic.price === 139 && qlic.max_devices === 2 && qlic.agency === 'Quote Co', 'accepted quote keeps quoted price after rate change: ' + (qlic && qlic.price));
+ok(ql.quotes.find((q) => q.id === qq.j.quote.id).status === 'accepted' && ql.quotes[0].lines.length >= 1 && qq.j.quote.lines.length === 4, 'quote accepted, lines kept');
+ok((await post('/admin/api/action', { action: 'quote_accept', id: qq.j.quote.id }, A)).s === 400, 'no double key');
+const qd = await post('/admin/api/quotes', { plan: 'standard', agency: 'No Co' }, A);
+ok((await post('/admin/api/action', { action: 'quote_status', id: qd.j.quote.id, status: 'declined' }, A)).j.quote.status === 'declined', 'declined');
+await post('/admin/api/action', { action: 'set_payment', text: 'STC Pay: 05xxxxxxxx' }, A);
+ok((await get('/admin/api/licences', A)).j.settings.payment === 'STC Pay: 05xxxxxxxx', 'payment saved');
 console.log(`passed ${pass}, failed ${failN}`);

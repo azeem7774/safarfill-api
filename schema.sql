@@ -44,6 +44,25 @@ CREATE TABLE IF NOT EXISTS settings (
   value TEXT NOT NULL
 );
 
+-- Price quotes sent to agencies (Q-0001 ...). lines = the price breakdown as quoted.
+CREATE TABLE IF NOT EXISTS quotes (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at  INTEGER NOT NULL,
+  agency      TEXT NOT NULL DEFAULT '',
+  contact     TEXT NOT NULL DEFAULT '',
+  plan        TEXT NOT NULL,
+  portals     TEXT NOT NULL,
+  max_devices INTEGER NOT NULL,
+  ai_quota    INTEGER NOT NULL,
+  discount    TEXT NOT NULL DEFAULT '',
+  lines       TEXT NOT NULL,
+  price       INTEGER NOT NULL,
+  valid_until INTEGER NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'sent',  -- sent | accepted | declined
+  key         TEXT,                          -- licence made from it
+  notes       TEXT NOT NULL DEFAULT ''
+);
+
 CREATE TABLE IF NOT EXISTS rate (
   key    TEXT NOT NULL,
   kind   TEXT NOT NULL,                   -- parse | ai

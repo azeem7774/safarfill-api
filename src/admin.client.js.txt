@@ -185,6 +185,8 @@
     const sup = (data.settings && data.settings.support) || {};
     if (document.activeElement !== $('supWa')) $('supWa').value = sup.whatsapp || '';
     if (document.activeElement !== $('supEmail')) $('supEmail').value = sup.email || '';
+    if (document.activeElement !== $('payText')) $('payText').value = (data.settings && data.settings.payment) || '';
+    drawQuotes();
     const sar = data.totals.cost * USD_TO_SAR;
     $('sCost').textContent = `${sar.toFixed(sar < 10 ? 2 : 0)} SAR`;
     drawAttention();
@@ -202,6 +204,72 @@
     $('who').textContent = `Month ${data.month}`;
     if (!$('cPortals').children.length) planDefaults();
     render();
+  }
+
+  // ---------- quotes
+  const qNo = (q) => `Q-${String(q.id).padStart(4, '0')}`;
+  const qStatus = (q) => (q.status === 'sent' && q.valid_until < data.now ? 'expired' : q.status);
+  const portalNames = (ps) => ps.map((p) => NAMES[p] || p).join(', ');
+  function drawQuotes() {
+    $('quotes').innerHTML = (data.quotes || []).map((q) => {
+      const st = qStatus(q);
+      const pill = { sent: 'p-warn', accepted: 'p-ok', declined: 'p-muted', expired: 'p-muted' }[st];
+      return `<tr><td class="mono">${qNo(q)}</td><td>${fmtDate(q.created_at)}</td><td>${esc(q.agency)}</td><td>${esc(q.plan)}</td><td>${q.price} SAR</td>
+        <td>${fmtDate(q.valid_until)}</td><td><span class="pill ${pill}">${st}</span>${q.key ? ` <span class="mono small">${esc(q.key)}</span>` : ''}</td>
+        <td><div class="qbtns"><button class="small" data-q="pdf" data-id="${q.id}">PDF</button><button class="small" data-q="copy" data-id="${q.id}">Copy text</button>
+        ${q.status !== 'accepted' ? `<button class="small primary" data-q="accept" data-id="${q.id}">Accept → key</button>` : ''}
+        ${q.status === 'sent' ? `<button class="small" data-q="decline" data-id="${q.id}">Declined</button>` : ''}</div></td></tr>`;
+    }).join('') || '<tr><td colspan="8" class="muted">No quotes yet. Fill in the form above and press "Save as quote".</td></tr>';
+  }
+  function includes(q) {
+    return [
+      `Portals: ${portalNames(q.portals)}`,
+      `${q.max_devices} computer${q.max_devices > 1 ? 's' : ''}`,
+      `${q.ai_quota} AI reads per month`,
+      'Built-in passport reader: unlimited',
+    ];
+  }
+  function quoteText(q) {
+    const sup = data.settings.support || {};
+    const w = Math.max(...q.lines.map((l) => l[0].length)) + 2;
+    return [
+      `Assalam o Alaikum${q.agency ? ` ${q.agency}` : ''},`, '',
+      `SafarFill quote ${qNo(q)}`,
+      ...q.lines.map((l) => `${l[0].padEnd(w)}${l[1] < 0 ? '−' + -l[1] : l[1]} SAR`),
+      `Total: ${q.price} SAR / month`, '',
+      `Includes: ${includes(q).join('; ')}.`,
+      `Valid until ${fmtDate(q.valid_until)}.`,
+      ...(data.settings.payment ? ['', 'Payment:', data.settings.payment] : []),
+      ...(sup.whatsapp ? ['', `WhatsApp: +${sup.whatsapp}`] : []),
+    ].join('\n');
+  }
+  function printQuote(q) {
+    const sup = data.settings.support || {};
+    const contact = [sup.whatsapp ? `WhatsApp +${esc(sup.whatsapp)}` : '', sup.email ? esc(sup.email) : ''].filter(Boolean).join(' · ');
+    $('printArea').innerHTML = `
+      <div class="pq-head"><div class="pq-brand">Sahl Labs<small>SafarFill · passport reading and form filling for travel agencies</small></div>
+        <div class="pq-title"><b>QUOTATION</b>${qNo(q)}</div></div>
+      <div class="pq-meta">
+        <div><div class="k">Prepared for</div><b>${esc(q.agency || '—')}</b>${q.contact ? `<div>${esc(q.contact)}</div>` : ''}</div>
+        <div style="text-align:right"><div class="k">Date</div>${fmtDate(q.created_at)}<div class="k" style="margin-top:6px">Valid until</div>${fmtDate(q.valid_until)}</div>
+      </div>
+      <table class="pq-table"><thead><tr><th>Item</th><th class="n">SAR / month</th></tr></thead><tbody>
+        ${q.lines.map((l) => `<tr><td>${esc(l[0].replace(/^[+−] /, ''))}</td><td class="n">${l[1] < 0 ? '−' + -l[1] : l[1]}</td></tr>`).join('')}
+        <tr class="tot"><td>Total per month</td><td class="n">${q.price} SAR</td></tr></tbody></table>
+      <div class="pq-box"><h4>Included</h4><ul>${includes(q).map((i) => `<li>${esc(i)}</li>`).join('')}</ul></div>
+      ${data.settings.payment ? `<div class="pq-box"><h4>How to pay</h4><div class="pq-pre">${esc(data.settings.payment)}</div></div>` : ''}
+      <div class="pq-foot">Prices are monthly and paid in advance. Your licence key is sent after payment. ${contact ? `Questions: ${contact}` : ''}</div>`;
+    const title = document.title;
+    document.title = `SafarFill quote ${qNo(q)}${q.agency ? ` - ${q.agency}` : ''}`;
+    const back = () => { document.title = title; window.removeEventListener('afterprint', back); };
+    window.addEventListener('afterprint', back);
+    window.print();
+  }
+  function showNewKey(key, agency) {
+    const msg = message(key);
+    $('newKey').innerHTML = `<div class="newkey"><div class="small muted">New key for ${esc(agency || 'this agency')}</div><div class="mono">${esc(key)}</div><div class="wa">${esc(msg)}</div><div class="row" style="margin-top:8px"><button id="copyKey" class="small">Copy key</button><button id="copyMsg" class="small">Copy WhatsApp message</button></div></div>`;
+    $('copyKey').addEventListener('click', () => copy(key, 'Key copied.'));
+    $('copyMsg').addEventListener('click', () => copy(msg, 'Message copied. Paste it in WhatsApp.'));
   }
 
   // ---------- detail
@@ -303,14 +371,43 @@
         days: $('cDays').value, max_devices: $('cPcs').value, ai_quota: $('cAi').value, discount: $('cDisc').value,
         portals: portalsOf('cPortals'), notes: $('cNotes').value,
       });
-      const msg = message(j.key);
-      $('newKey').innerHTML = `<div class="newkey"><div class="small muted">New key for ${esc($('cAgency').value || 'this agency')}</div><div class="mono">${esc(j.key)}</div><div class="wa">${esc(msg)}</div><div class="row" style="margin-top:8px"><button id="copyKey" class="small">Copy key</button><button id="copyMsg" class="small">Copy WhatsApp message</button></div></div>`;
-      $('copyKey').addEventListener('click', () => copy(j.key, 'Key copied.'));
-      $('copyMsg').addEventListener('click', () => copy(msg, 'Message copied. Paste it in WhatsApp.'));
+      showNewKey(j.key, $('cAgency').value);
       $('cAgency').value = ''; $('cContact').value = ''; $('cNotes').value = ''; $('cDisc').value = ''; createQuote();
       await load();
       toast('Key created.');
     } finally { btn.disabled = false; }
+  }));
+
+  $('saveQuote').addEventListener('click', run(async () => {
+    const j = await api('/admin/api/quotes', {
+      plan: $('cPlan').value, agency: $('cAgency').value, contact: $('cContact').value,
+      max_devices: $('cPcs').value, ai_quota: $('cAi').value, discount: $('cDisc').value,
+      portals: portalsOf('cPortals'), notes: $('cNotes').value,
+    });
+    await load();
+    toast(`Quote ${qNo(j.quote)} saved: ${j.quote.price} SAR/month. Press PDF or Copy text in Quotes.`);
+    $('quotes').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }));
+  $('quotes').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-q]');
+    if (!b) return;
+    const q = data.quotes.find((x) => String(x.id) === b.dataset.id);
+    if (!q) return;
+    if (b.dataset.q === 'pdf') printQuote(q);
+    else if (b.dataset.q === 'copy') copy(quoteText(q), 'Quote copied. Paste it in WhatsApp.');
+    else if (b.dataset.q === 'decline') run(async () => { await api('/admin/api/action', { action: 'quote_status', id: q.id, status: 'declined' }); await load(); })();
+    else if (b.dataset.q === 'accept') run(async () => {
+      const j = await api('/admin/api/action', { action: 'quote_accept', id: q.id });
+      await load();
+      showNewKey(j.key, q.agency);
+      $('newKey').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      toast(`Key made from ${qNo(q)} at ${q.price} SAR/month.`);
+    })();
+  });
+  $('savePay').addEventListener('click', run(async () => {
+    await api('/admin/api/action', { action: 'set_payment', text: $('payText').value });
+    await load();
+    toast('Payment details saved.');
   }));
 
   $('list').addEventListener('click', (e) => {

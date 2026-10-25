@@ -1,4 +1,4 @@
-# SafarFill licence server — API for the extension (v1.5.0)
+# SafarFill licence server — API for the extension (v1.6.0)
 
 Base URL: `https://safarfill-api.azeemhfd.workers.dev`
 Worker name `safarfill-api`, D1 database `safarfill` (binding `DB`). Separate from `fq-relay`: no shared code, database or secrets.
@@ -77,3 +77,9 @@ Send the extension's version in `/v1/session` (`"version": "1.1.0"`). If you set
   - Discount per licence: SAR (`20`) or percent (`10%`).
   - The price is recalculated whenever a licence changes (+1 computer, +100 AI reads, plan change, edit). New add-on prices apply to a licence the next time it changes.
   - Older databases: a typed price lower than the new sum becomes that licence's discount, so nobody's price changes.
+- **Quotes**: fill in the create form and press **Save as quote** (Starter or Standard). Each quote gets a number (Q-0001), is valid 7 days, and is saved with its exact price breakdown. In the Quotes list:
+  - **PDF**: a branded A4 quotation, saved through Chrome's print → Save as PDF. It shows the breakdown, what's included, how to pay (Settings → Payment details) and the support contact.
+  - **Copy text**: the same quote as a WhatsApp message.
+  - **Accept → key**: makes the licence with exactly the quoted settings and price, even if the add-on prices changed since.
+  - **Declined**: marks it declined. Status: sent / accepted / declined / expired.
+
