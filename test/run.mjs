@@ -177,4 +177,11 @@ const rl = (await get('/admin/api/licences', A)).j.licences.find((l) => l.key ==
 ok(rl.parse_count === 1, '3 calls, 1 page = 1 read: ' + rl.parse_count);
 const pre2 = await fetch(B + '/v1/parse', { method: 'OPTIONS' });
 ok(pre2.headers.get('access-control-allow-headers').includes('X-Read-Start'), 'CORS allows X-Read-Start');
+// delete a key
+const dk = await post('/admin/api/licences', { plan: 'trial', agency: 'Delete Me' }, A);
+const ds = await post('/v1/session', { key: dk.j.key, device: 'dev-del-00001', version: '1.1.0' });
+ok((await post('/admin/api/action', { key: dk.j.key, action: 'delete_licence' }, A)).j.deleted === dk.j.key, 'key deleted');
+ok(!(await get('/admin/api/licences', A)).j.licences.some((l) => l.key === dk.j.key), 'gone from list');
+ok((await post('/v1/parse', { lines: [L1, L2] }, { authorization: 'Bearer ' + ds.j.pass })).s >= 400, 'deleted key stops working');
+ok((await post('/v1/session', { key: dk.j.key, device: 'dev-del-00001', version: '1.1.0' })).s === 403, 'deleted key refused');
 console.log(`passed ${pass}, failed ${failN}`);

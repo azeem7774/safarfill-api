@@ -1,4 +1,4 @@
-# SafarFill licence server — API for the extension (v1.6.1)
+# SafarFill licence server — API for the extension (v1.6.2)
 
 Base URL: `https://safarfill-api.azeemhfd.workers.dev`
 Worker name `safarfill-api`, D1 database `safarfill` (binding `DB`). Separate from `fq-relay`: no shared code, database or secrets.
@@ -71,7 +71,7 @@ Send the extension's version in `/v1/session` (`"version": "1.1.0"`). If you set
 - **Forms filled** per licence and per month (counted by /v1/fill).
 - **Settings → Oldest SafarFill version allowed**: older versions must update.
 - **Settings → Support WhatsApp / email**: shown in SafarFill as "WhatsApp us" / email.
-- Actions: Payment received (+30 days), + days, change plan, AI test (5/10, trials), +100 AI reads, +1 computer, block/unblock, remove one or all computers.
+- Actions: Payment received (+30 days), + days, change plan, AI test (5/10, trials), +100 AI reads, +1 computer, block/unblock, remove one or all computers, **Delete key** (permanently removes a key with its computers, usage and history; for test keys).
 - **Monthly price = plan + add-ons − discount**, worked out by the server and shown as a breakdown in the create and edit forms.
   - Plan: Starter 79, Standard 149; trial and owner are free.
   - Add-ons (defaults, editable in Settings → Add-on prices): extra portal 30 (Starter only; Starter includes 1), extra computer 25 (beyond the plan's), 100 AI reads 15 (beyond the plan's, per started 100).

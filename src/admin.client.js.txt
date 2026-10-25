@@ -445,6 +445,13 @@
   $('addPc').addEventListener('click', run(() => act(current.key, 'add_device_slot')));
   $('block').addEventListener('click', () => askConfirm(`Block ${current.agency || current.key}? SafarFill stops working for them at once.`, () => act(current.key, 'block')));
   $('unblock').addEventListener('click', run(() => act(current.key, 'unblock')));
+  $('delKey').addEventListener('click', () => askConfirm(`Delete ${current.key}${current.agency ? ` (${current.agency})` : ''} for ever? SafarFill stops working on its computers, and its usage and history are removed. This cannot be undone.`, async () => {
+    const key = current.key;
+    await api('/admin/api/action', { key, action: 'delete_licence' });
+    $('detail').hidden = true; current = null;
+    await load();
+    toast(`Key ${key} deleted.`);
+  }));
   $('reset').addEventListener('click', () => askConfirm('Remove all computers from this licence? Each computer must enter the key again.', () => act(current.key, 'reset_devices')));
   $('dDevices').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-dev]');

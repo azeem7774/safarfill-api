@@ -15,7 +15,7 @@ import { TOOL, PROMPT } from './prompt.js';
 import ADMIN_HTML from './admin.html';
 import ADMIN_JS from './admin.client.js.txt';
 
-const API_VERSION = '1.6.1';
+const API_VERSION = '1.6.2';
 const DAY = 86400000;
 const PASS_MS = DAY; // a pass lets the extension keep working offline for up to a day
 
@@ -799,6 +799,17 @@ async function adminAction(env, req) {
       await closeEvents(env, key, ['portal_not_in_plan']);
       await addEvent(env, key, 'info', 'details', total !== before ? `Details changed (price ${before} → ${total} SAR)` : 'Details changed');
       break;
+    }
+    case 'delete_licence': {
+      // Permanently removes a key with its computers, usage and history (for test keys).
+      await env.DB.batch([
+        env.DB.prepare('DELETE FROM devices WHERE key = ?1').bind(key),
+        env.DB.prepare('DELETE FROM usage WHERE key = ?1').bind(key),
+        env.DB.prepare('DELETE FROM events WHERE key = ?1').bind(key),
+        env.DB.prepare('DELETE FROM licences WHERE key = ?1').bind(key),
+      ]);
+      await addEvent(env, 'SYSTEM', 'info', 'deleted', `Key ${key}${lic.agency ? ` (${lic.agency})` : ''} deleted`);
+      return json({ ok: true, deleted: key });
     }
     case 'block':
       await run("UPDATE licences SET status = 'blocked' WHERE key = ?1");
