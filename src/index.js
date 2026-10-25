@@ -15,7 +15,7 @@ import { TOOL, PROMPT } from './prompt.js';
 import ADMIN_HTML from './admin.html';
 import ADMIN_JS from './admin.client.js.txt';
 
-const API_VERSION = '1.6.0';
+const API_VERSION = '1.6.1';
 const DAY = 86400000;
 const PASS_MS = DAY; // a pass lets the extension keep working offline for up to a day
 
@@ -79,7 +79,7 @@ const LIMITS = {
 const CORS = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Image-Type, X-Model',
+  'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Image-Type, X-Model, X-Read-Start',
   'Access-Control-Max-Age': '86400',
 };
 
@@ -363,7 +363,8 @@ async function parse(env, req) {
       return parseMrz(a || '', b || '');
     });
   }
-  await addUsage(env, g.lic.key, usageMonth(g.lic, g.t), 1, 0, 0);
+  // "Reads" = passport pages read: the extension sends X-Read-Start: 1 on the first call for a page only.
+  if (req.headers.get('x-read-start') === '1') await addUsage(env, g.lic.key, usageMonth(g.lic, g.t), 1, 0, 0);
   return json(out);
 }
 

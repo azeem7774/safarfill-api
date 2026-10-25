@@ -40,7 +40,7 @@ const P = { authorization: 'Bearer ' + s1.j.pass };
 // parse
 const L1 = 'P<UTOERIKSSON<<ANNA<MARIA<<<<<<<<<<<<<<<<<<<';
 const L2 = 'L898902C36UTO7408122F1204159ZE184226B<<<<<10';
-const pr = await post('/v1/parse', { lines: ['REPUBLIC OF UTOPIA PASSPORT NUMBER', L1, L2] }, P);
+const pr = await post('/v1/parse', { lines: ['REPUBLIC OF UTOPIA PASSPORT NUMBER', L1, L2] }, { ...P, 'x-read-start': '1' });
 ok(pr.j.ok && pr.j.parsed && pr.j.parsed.fields.surname === 'ERIKSSON' && pr.j.parsed.fields.passportNo === 'L898902C3' && pr.j.parsed.checks.passportNumber, 'parse lines ' + JSON.stringify(pr.j).slice(0, 300));
 const pp = await post('/v1/parse', { pairs: [[L1, L2], ['junk', 'junk']] }, P);
 ok(pp.j.results.length === 2 && pp.j.results[0].fields.givenNames === 'ANNA MARIA' && pp.j.results[1].valid === false, 'parse pairs');
@@ -166,4 +166,15 @@ const qd = await post('/admin/api/quotes', { plan: 'standard', agency: 'No Co' }
 ok((await post('/admin/api/action', { action: 'quote_status', id: qd.j.quote.id, status: 'declined' }, A)).j.quote.status === 'declined', 'declined');
 await post('/admin/api/action', { action: 'set_payment', text: 'STC Pay: 05xxxxxxxx' }, A);
 ok((await get('/admin/api/licences', A)).j.settings.payment === 'STC Pay: 05xxxxxxxx', 'payment saved');
+// reads count pages (X-Read-Start), not calls
+const rk = await post('/admin/api/licences', { plan: 'standard', agency: 'Read Co' }, A);
+const rs = await post('/v1/session', { key: rk.j.key, device: 'dev-read-0001', version: '1.1.0' });
+const RP = { authorization: 'Bearer ' + rs.j.pass };
+await post('/v1/parse', { lines: [L1, L2] }, { ...RP, 'x-read-start': '1' });
+await post('/v1/parse', { lines: [L1, L2] }, RP);
+await post('/v1/parse', { pairs: [[L1, L2]] }, RP);
+const rl = (await get('/admin/api/licences', A)).j.licences.find((l) => l.key === rk.j.key);
+ok(rl.parse_count === 1, '3 calls, 1 page = 1 read: ' + rl.parse_count);
+const pre2 = await fetch(B + '/v1/parse', { method: 'OPTIONS' });
+ok(pre2.headers.get('access-control-allow-headers').includes('X-Read-Start'), 'CORS allows X-Read-Start');
 console.log(`passed ${pass}, failed ${failN}`);

@@ -1,4 +1,4 @@
-# SafarFill licence server — API for the extension (v1.6.0)
+# SafarFill licence server — API for the extension (v1.6.1)
 
 Base URL: `https://safarfill-api.azeemhfd.workers.dev`
 Worker name `safarfill-api`, D1 database `safarfill` (binding `DB`). Separate from `fq-relay`: no shared code, database or secrets.
@@ -34,6 +34,7 @@ Turns OCR text into passport fields. The parsing logic lives only on the server.
   → `{ ok: true, pick: { i1, i2, score } | null, parsed: <parseMrz result> | null }` (`i1`/`i2` index into the lines you sent; `i1` is -1 if no first line)
 - Closer read: `{ "pairs": [["line1", "line2"], ...] }` (up to 6) → `{ ok: true, results: [<parseMrz result>, ...] }` in the same order. Pick the best one yourself (valid first, then higher score).
 - Both may be sent in one call.
+- **Counting reads:** send header `X-Read-Start: 1` on the **first** /v1/parse call for each passport page only. The dashboard's "Reads" counts those headers (= pages read), not calls. All calls are still rate-limited: 240 calls per minute per licence.
 
 `parseMrz result` is exactly what `lib/mrz.js` returned before: `{ valid, passed, score, checks, problems, doubt, lines, fields: { surname, givenNames, passportNo, nationalityCode, issuingCode, dob, sex, expiry, cnic } }`.
 
