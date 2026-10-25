@@ -37,6 +37,12 @@
   .stat { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
   .stat b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
   .stat span { color: var(--muted); font-size: 12px; }
+  .quote { margin-top: 12px; border: 1px solid var(--line, #ddd); border-radius: 8px; padding: 8px 12px; font-size: 13px; max-width: 360px; }
+  .quote:empty { display: none; }
+  .quote .ql { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
+  .quote .qt { border-top: 1px solid var(--line, #ddd); margin-top: 4px; padding-top: 6px; font-weight: 600; }
+  .grid3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .grid3 label { font-size: 11px; }
   label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
   input, select { width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--card); color: var(--ink); font: inherit; }
   input:disabled { opacity: .55; }
@@ -134,8 +140,9 @@
               <div><label for="eContact">WhatsApp number</label><input id="eContact" maxlength="40"></div>
               <div><label for="eDevices">Computers</label><input id="eDevices" type="number" min="1" max="50"></div>
               <div><label for="eAi">AI reads (0 = off, −1 = no limit)</label><input id="eAi" type="number" min="-1"></div>
-              <div><label for="ePrice">Monthly price (SAR)</label><input id="ePrice" type="number" min="0"></div>
+              <div><label for="eDisc">Discount (SAR, or % like 10%)</label><input id="eDisc" maxlength="10" placeholder="none"></div>
             </div>
+            <div class="quote" id="eQuote"></div>
             <div style="margin-top:12px"><label>Portals</label><div class="checks" id="ePortals"></div></div>
             <div style="margin-top:12px"><label for="eNotes">Notes</label><input id="eNotes" maxlength="500"></div>
             <div class="row" style="margin-top:12px"><button id="save" class="primary">Save changes</button></div>
@@ -146,13 +153,13 @@
               <button id="extN">+ days</button>
             </div>
             <div class="row" style="margin-top:8px">
-              <input id="paidPrice" type="number" min="0" placeholder="price SAR" style="width:110px" title="Monthly price for the new plan (empty = plan price)">
+              <input id="paidDisc" maxlength="10" placeholder="discount" style="width:100px" title="Discount for the new plan: SAR or % (empty = keep current)">
               <select id="paidPlan" style="width:auto"><option value="starter">Starter</option><option value="standard" selected>Standard</option><option value="owner">Owner</option></select>
               <button id="makePaid">Change plan</button>
             </div>
             <div class="row" style="margin-top:8px">
               <span id="aiTest" class="row"><button id="ai5">AI test: give 5</button><button id="ai10">AI test: give 10</button></span>
-              <button id="addAi">+100 AI reads</button>
+              <button id="addAi">+100 AI reads / month</button>
               <button id="addPc">+1 computer</button>
             </div>
             <div class="row" style="margin-top:8px">
@@ -200,9 +207,10 @@
           <div><label for="cDays">Days</label><input id="cDays" type="number" min="1" max="3660"></div>
           <div><label for="cPcs">Computers</label><input id="cPcs" type="number" min="1" max="50"></div>
           <div><label for="cAi">AI reads (0 = off, −1 = no limit)</label><input id="cAi" type="number" min="-1"></div>
-          <div><label for="cPrice">Monthly price (SAR)</label><input id="cPrice" type="number" min="0"></div>
+          <div><label for="cDisc">Discount (SAR, or % like 10%)</label><input id="cDisc" maxlength="10" placeholder="none"></div>
         </div>
         <div style="margin-top:12px"><label>Portals</label><div class="checks" id="cPortals"></div></div>
+        <div class="quote" id="cQuote"></div>
         <div style="margin-top:12px"><label for="cNotes">Notes</label><input id="cNotes" maxlength="500"></div>
         <div class="row" style="margin-top:12px"><button id="create" class="primary">Create key</button></div>
         <div id="newKey"></div>
@@ -215,6 +223,14 @@
         <label for="minVersion">Oldest SafarFill version allowed</label>
         <div class="row"><input id="minVersion" placeholder="e.g. 1.1.0 (empty = all)" style="flex:1;min-width:0"><button id="saveMin">Save</button></div>
         <p class="note" style="margin:8px 0 0">Older versions are told to update and stop reading and filling.</p>
+        <label style="margin-top:14px">Add-on prices (SAR / month)</label>
+        <div class="grid3">
+          <div><label for="rPortal">Extra portal</label><input id="rPortal" type="number" min="0"></div>
+          <div><label for="rPc">Extra computer</label><input id="rPc" type="number" min="0"></div>
+          <div><label for="rAi">100 AI reads</label><input id="rAi" type="number" min="0"></div>
+        </div>
+        <div class="row" style="margin-top:8px"><button id="saveRates">Save prices</button></div>
+        <p class="note" style="margin:8px 0 0">New prices apply to new keys and to a licence the next time you change it.</p>
         <label for="supWa" style="margin-top:14px">Support WhatsApp (with country code)</label>
         <input id="supWa" placeholder="e.g. 966512345678">
         <label for="supEmail">Support email</label>

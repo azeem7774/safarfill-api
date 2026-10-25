@@ -15,7 +15,7 @@ import { TOOL, PROMPT } from './prompt.js';
 import ADMIN_HTML from './admin.html';
 import ADMIN_JS from './admin.client.js.txt';
 
-const API_VERSION = '1.4.0';
+const API_VERSION = '1.5.0';
 const DAY = 86400000;
 const PASS_MS = DAY; // a pass lets the extension keep working offline for up to a day
 
@@ -30,6 +30,32 @@ export const PLANS = {
 
 // Monthly prices in SAR, used for the income figure on the dashboard.
 export const PRICES = { trial: 0, starter: 79, standard: 149, owner: 0 };
+// Add-on prices in SAR per month (editable in the dashboard Settings).
+export const DEFAULT_RATES = { portal: 30, pc: 25, ai100: 15 };
+
+// Monthly price = plan + add-ons − discount. Add-ons come from the licence's own limits:
+// portals beyond Starter's one, computers beyond the plan's, AI reads beyond the plan's (per 100).
+// Trial and owner are free. discount: '' | '20' (SAR) | '10%'. The same sum runs in the dashboard.
+export function quote(lic, discount, rates) {
+  const r = { ...DEFAULT_RATES, ...(rates || {}) };
+  const d = PLANS[lic.plan];
+  const base = PRICES[lic.plan] || 0;
+  if (!d || !base) return { lines: [], subtotal: 0, discount_sar: 0, total: 0 };
+  const lines = [[`${lic.plan[0].toUpperCase()}${lic.plan.slice(1)} plan`, base]];
+  const portals = lic.plan === 'starter' ? Math.max(0, (lic.portals || []).length - 1) : 0;
+  if (portals) lines.push([`+ ${portals} extra portal${portals > 1 ? 's' : ''}`, portals * r.portal]);
+  const pcs = Math.max(0, (lic.max_devices || 1) - d.max_devices);
+  if (pcs) lines.push([`+ ${pcs} extra computer${pcs > 1 ? 's' : ''}`, pcs * r.pc]);
+  const packs = d.ai_quota > 0 && lic.ai_quota > d.ai_quota ? Math.ceil((lic.ai_quota - d.ai_quota) / 100) : 0;
+  if (packs) lines.push([`+ ${packs * 100} AI reads`, packs * r.ai100]);
+  const subtotal = lines.reduce((a, l) => a + l[1], 0);
+  const m = String(discount || '').trim().match(/^(\d+(?:\.\d+)?)(%?)$/);
+  let off = m ? (m[2] ? Math.round(subtotal * Math.min(100, +m[1]) / 100) : Math.round(+m[1])) : 0;
+  off = Math.min(off, subtotal);
+  if (off) lines.push([`− Discount${m[2] ? ` ${m[1]}%` : ''}`, -off]);
+  return { lines, subtotal, discount_sar: off, total: subtotal - off };
+}
+const DISCOUNT_RE = /^(\d+(\.\d+)?%?)?$/;
 
 const MODELS = {
   sonnet: { id: 'claude-sonnet-5-5', inPerM: 2, outPerM: 10, forceTool: false },
@@ -483,7 +509,33 @@ async function ensureSchema(env) {
   ]) {
     try { await env.DB.prepare(sql).run(); } catch (e) { /* already there */ }
   }
+  let added = false;
+  try { await env.DB.prepare("ALTER TABLE licences ADD COLUMN discount TEXT NOT NULL DEFAULT ''").run(); added = true; } catch (e) { /* already there */ }
+  if (added) {
+    // Older versions stored a typed price: keep what each agency pays by turning it into a discount.
+    const rates = await getRates(env);
+    const { results } = await env.DB.prepare('SELECT * FROM licences').all();
+    for (const row of results) {
+      const lic = { ...row, portals: safeList(row.portals) };
+      const auto = quote(lic, '', rates).total;
+      const disc = row.price != null && row.price < auto ? String(auto - row.price) : '';
+      await env.DB.prepare('UPDATE licences SET discount = ?2, price = ?3 WHERE key = ?1').bind(row.key, disc, quote(lic, disc, rates).total).run();
+    }
+  }
   schemaChecked = true;
+}
+
+async function getRates(env) {
+  try { return { ...DEFAULT_RATES, ...JSON.parse((await getSetting(env, 'rates')) || '{}') }; } catch (e) { return { ...DEFAULT_RATES }; }
+}
+
+// Works out and saves the monthly price after any change to a licence.
+async function reprice(env, key) {
+  const lic = await getLicence(env, key);
+  if (!lic) return 0;
+  const total = quote(lic, lic.discount, await getRates(env)).total;
+  await env.DB.prepare('UPDATE licences SET price = ?2 WHERE key = ?1').bind(key, total).run();
+  return total;
 }
 
 async function getSupport(env) {
@@ -510,7 +562,6 @@ function olderThan(a, b) {
   return false;
 }
 const UPDATE_MSG = 'A newer SafarFill is needed. Open chrome://extensions, turn on Developer mode and press Update, or reinstall SafarFill from the Chrome Web Store.';
-const priceOf = (lic) => (lic.price != null ? lic.price : (PRICES[lic.plan] || 0));
 
 const cleanText = (s, n = 200) => String(s == null ? '' : s).trim().slice(0, n);
 const intOr = (v, d) => (Number.isFinite(+v) && v !== '' && v !== null ? Math.trunc(+v) : d);
@@ -538,7 +589,7 @@ async function adminList(env) {
      WHERE e.done = 0 AND e.at > ?1 AND e.code IN ('device_limit', 'ai_not_in_trial', 'ai_unavailable', 'device_removed', 'portal_not_in_plan')
      ORDER BY e.at DESC LIMIT 30`
   ).bind(t - 2 * DAY).all()).results;
-  return json({ ok: true, now: t, month: monthOf(t), plans: PLANS, prices: PRICES, portals: ALL_PORTALS,
+  return json({ ok: true, now: t, month: monthOf(t), plans: PLANS, prices: PRICES, rates: await getRates(env), portals: ALL_PORTALS,
     licences: results.map((r) => ({ ...r, portals: safeList(r.portals) })), totals, feed, open,
     settings: { min_version: await getSetting(env, 'min_version'), support: await getSupport(env) } });
 }
@@ -552,19 +603,22 @@ async function adminCreate(env, req) {
   const portals = Array.isArray(b.portals) ? b.portals.filter((p) => ALL_PORTALS.includes(p)) : d.portals;
   if (!portals.length) return fail(400, 'no_portals', 'Choose at least one portal.');
   const days = intOr(b.days, d.days);
+  const discount = cleanText(b.discount, 10).replace(/\s/g, '');
+  if (!DISCOUNT_RE.test(discount)) return fail(400, 'bad_discount', 'Write the discount as SAR (e.g. 20) or percent (e.g. 10%).');
   let key = newKey();
   for (let i = 0; i < 3 && (await getLicence(env, key)); i++) key = newKey();
   await env.DB.prepare(
-    `INSERT INTO licences (key, agency, contact, plan, portals, max_devices, ai_quota, trial_days, expires_at, status, notes, created_at, price)
+    `INSERT INTO licences (key, agency, contact, plan, portals, max_devices, ai_quota, trial_days, expires_at, status, notes, created_at, discount)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'active', ?10, ?11, ?12)`
   ).bind(
     key, cleanText(b.agency, 120), cleanText(b.contact, 40), plan, JSON.stringify(portals),
     Math.max(1, intOr(b.max_devices, d.max_devices)), intOr(b.ai_quota, d.ai_quota),
     plan === 'trial' ? days : 0,
     plan === 'trial' || plan === 'owner' || days <= 0 ? null : t + days * DAY,
-    cleanText(b.notes, 500), t, Math.max(0, intOr(b.price, PRICES[plan] || 0)),
+    cleanText(b.notes, 500), t, discount,
   ).run();
-  await addEvent(env, key, 'info', 'created', `Key created (${plan})`);
+  const total = await reprice(env, key);
+  await addEvent(env, key, 'info', 'created', `Key created (${plan}${total ? `, ${total} SAR/month` : ''})`);
   return json({ ok: true, key });
 }
 
@@ -574,7 +628,7 @@ async function adminDetail(env, key) {
   const devices = (await env.DB.prepare('SELECT * FROM devices WHERE key = ?1 ORDER BY first_seen').bind(key).all()).results;
   const usage = (await env.DB.prepare('SELECT * FROM usage WHERE key = ?1 ORDER BY month DESC LIMIT 12').bind(key).all()).results;
   const log = (await env.DB.prepare('SELECT * FROM events WHERE key = ?1 ORDER BY at DESC LIMIT 40').bind(key).all()).results;
-  return json({ ok: true, licence: lic, devices, usage, log });
+  return json({ ok: true, licence: lic, devices, usage, log, quote: quote(lic, lic.discount, await getRates(env)) });
 }
 
 async function adminAction(env, req) {
@@ -596,6 +650,17 @@ async function adminAction(env, req) {
     await setSetting(env, 'support_email', email);
     await addEvent(env, 'SYSTEM', 'info', 'support', `Support contact set: ${wa ? '+' + wa : 'no WhatsApp'}, ${email || 'no email'}`);
     return json({ ok: true, support: { whatsapp: wa, email } });
+  }
+  if (b.action === 'set_rates') {
+    const r = {};
+    for (const k of Object.keys(DEFAULT_RATES)) {
+      const v = intOr(b.rates && b.rates[k], -1);
+      if (v < 0 || v > 10000) return fail(400, 'bad_rate', 'Add-on prices must be 0 to 10000 SAR.');
+      r[k] = v;
+    }
+    await setSetting(env, 'rates', JSON.stringify(r));
+    await addEvent(env, 'SYSTEM', 'info', 'rates', `Add-on prices: portal ${r.portal}, computer ${r.pc}, 100 AI reads ${r.ai100} SAR`);
+    return json({ ok: true, rates: r });
   }
   if (b.action === 'dismiss') {
     await env.DB.prepare('UPDATE events SET done = 1 WHERE id = ?1').bind(intOr(b.event_id, 0)).run();
@@ -621,32 +686,39 @@ async function adminAction(env, req) {
       const plan = PLANS[b.plan] && b.plan !== 'trial' ? b.plan : null;
       if (!plan) return fail(400, 'bad_plan', 'Choose a paid plan.');
       const d = PLANS[plan];
-      const portals = Array.isArray(b.portals) && b.portals.length ? b.portals.filter((p) => ALL_PORTALS.includes(p)) : d.portals;
+      let portals = Array.isArray(b.portals) && b.portals.length ? b.portals.filter((p) => ALL_PORTALS.includes(p)) : d.portals;
+      if (plan === 'starter' && !(Array.isArray(b.portals) && b.portals.length)) portals = lic.portals.length < ALL_PORTALS.length ? lic.portals : d.portals;
+      const discount = b.discount != null ? cleanText(b.discount, 10).replace(/\s/g, '') : lic.discount;
+      if (!DISCOUNT_RE.test(discount)) return fail(400, 'bad_discount', 'Write the discount as SAR (e.g. 20) or percent (e.g. 10%).');
       await run(
-        'UPDATE licences SET plan = ?2, portals = ?3, ai_quota = ?4, max_devices = MAX(max_devices, ?5), expires_at = ?6, status = \'active\', price = ?7 WHERE key = ?1',
-        plan, JSON.stringify(portals), d.ai_quota, d.max_devices, plan === 'owner' ? null : t + intOr(b.days, d.days) * DAY,
-        Math.max(0, intOr(b.price, PRICES[plan] || 0)),
+        'UPDATE licences SET plan = ?2, portals = ?3, ai_quota = ?4, max_devices = MAX(max_devices, ?5), expires_at = ?6, status = \'active\', discount = ?7 WHERE key = ?1',
+        plan, JSON.stringify(portals), d.ai_quota, d.max_devices, plan === 'owner' ? null : t + intOr(b.days, d.days) * DAY, discount,
       );
+      const total = await reprice(env, key);
       await closeEvents(env, key, ['expired', 'trial_over', 'ai_not_in_trial', 'quota']);
-      await addEvent(env, key, 'ok', 'plan_changed', `Now on ${plan}${intOr(b.price, PRICES[plan] || 0) ? ` (${intOr(b.price, PRICES[plan] || 0)} SAR/month)` : ''}`, 'Their key keeps working; nothing to reinstall.');
+      await addEvent(env, key, 'ok', 'plan_changed', `Now on ${plan}${total ? ` (${total} SAR/month)` : ''}`, 'Their key keeps working; nothing to reinstall.');
       break;
     }
     case 'update': {
       const f = b.fields || {};
       const portals = Array.isArray(f.portals) ? f.portals.filter((p) => ALL_PORTALS.includes(p)) : lic.portals;
       if (!portals.length) return fail(400, 'no_portals', 'Choose at least one portal.');
+      const discount = f.discount != null ? cleanText(f.discount, 10).replace(/\s/g, '') : lic.discount;
+      if (!DISCOUNT_RE.test(discount)) return fail(400, 'bad_discount', 'Write the discount as SAR (e.g. 20) or percent (e.g. 10%).');
+      const before = lic.price || 0;
       await run(
-        'UPDATE licences SET agency = ?2, contact = ?3, portals = ?4, max_devices = ?5, ai_quota = ?6, notes = ?7, price = ?8 WHERE key = ?1',
+        'UPDATE licences SET agency = ?2, contact = ?3, portals = ?4, max_devices = ?5, ai_quota = ?6, notes = ?7, discount = ?8 WHERE key = ?1',
         f.agency != null ? cleanText(f.agency, 120) : lic.agency,
         f.contact != null ? cleanText(f.contact, 40) : lic.contact,
         JSON.stringify(portals),
         Math.max(1, intOr(f.max_devices, lic.max_devices)),
         intOr(f.ai_quota, lic.ai_quota),
         f.notes != null ? cleanText(f.notes, 500) : lic.notes,
-        f.price != null && f.price !== '' ? Math.max(0, intOr(f.price, priceOf(lic))) : priceOf(lic),
+        discount,
       );
+      const total = await reprice(env, key);
       await closeEvents(env, key, ['portal_not_in_plan']);
-      await addEvent(env, key, 'info', 'details', f.price != null && +f.price !== priceOf(lic) ? `Details changed (price ${priceOf(lic)} → ${intOr(f.price, priceOf(lic))} SAR)` : 'Details changed');
+      await addEvent(env, key, 'info', 'details', total !== before ? `Details changed (price ${before} → ${total} SAR)` : 'Details changed');
       break;
     }
     case 'block':
@@ -671,8 +743,9 @@ async function adminAction(env, req) {
       const n = intOr(b.amount, 100);
       if (n < 1 || n > 100000) return fail(400, 'bad_amount', 'Amount must be between 1 and 100000.');
       await run('UPDATE licences SET ai_quota = ai_quota + ?2 WHERE key = ?1 AND ai_quota >= 0', n);
+      const total = await reprice(env, key);
       await closeEvents(env, key, ['quota', 'ai_not_in_trial']);
-      await addEvent(env, key, 'ok', 'ai_added', `+${n} AI reads`, 'Read with AI works again straight away.');
+      await addEvent(env, key, 'ok', 'ai_added', `+${n} AI reads a month${total ? ` (now ${total} SAR/month)` : ''}`, 'Read with AI works again straight away.');
       break;
     }
     case 'ai_test': {
@@ -686,8 +759,9 @@ async function adminAction(env, req) {
     }
     case 'add_device_slot':
       await run('UPDATE licences SET max_devices = max_devices + 1 WHERE key = ?1');
-      await closeEvents(env, key, ['device_limit']);
-      await addEvent(env, key, 'ok', 'device_slot', `Computers allowed: ${lic.max_devices + 1}`, 'They can now enter the key on one more computer.');
+      { const total = await reprice(env, key);
+        await closeEvents(env, key, ['device_limit']);
+        await addEvent(env, key, 'ok', 'device_slot', `Computers allowed: ${lic.max_devices + 1}${total ? ` (now ${total} SAR/month)` : ''}`, 'They can now enter the key on one more computer.'); }
       break;
     default:
       return fail(400, 'bad_action', 'Unknown action.');

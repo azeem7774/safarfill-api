@@ -52,6 +52,32 @@
   const expired = (l) => l.expires_at && l.expires_at <= data.now;
   const planPrice = (plan) => (data.prices && data.prices[plan]) || 0;
   const price = (l) => (l.price != null ? l.price : planPrice(l.plan));
+  // Same sum as quote() on the server: plan + add-ons − discount.
+  function quoteOf(lic, discount) {
+    const r = data.rates; const d = data.plans[lic.plan]; const base = planPrice(lic.plan);
+    if (!d || !base) return { lines: [], total: 0 };
+    const lines = [[`${lic.plan[0].toUpperCase()}${lic.plan.slice(1)} plan`, base]];
+    const portals = lic.plan === 'starter' ? Math.max(0, lic.portals.length - 1) : 0;
+    if (portals) lines.push([`+ ${portals} extra portal${portals > 1 ? 's' : ''}`, portals * r.portal]);
+    const pcs = Math.max(0, (+lic.max_devices || 1) - d.max_devices);
+    if (pcs) lines.push([`+ ${pcs} extra computer${pcs > 1 ? 's' : ''}`, pcs * r.pc]);
+    const ai = +lic.ai_quota;
+    const packs = d.ai_quota > 0 && ai > d.ai_quota ? Math.ceil((ai - d.ai_quota) / 100) : 0;
+    if (packs) lines.push([`+ ${packs * 100} AI reads`, packs * r.ai100]);
+    const sub = lines.reduce((a, l) => a + l[1], 0);
+    const m = String(discount || '').replace(/\s/g, '').match(/^(\d+(?:\.\d+)?)(%?)$/);
+    const off = Math.min(sub, m ? (m[2] ? Math.round(sub * Math.min(100, +m[1]) / 100) : Math.round(+m[1])) : 0);
+    if (off) lines.push([`− Discount${m[2] ? ` ${m[1]}%` : ''}`, -off]);
+    return { lines, total: sub - off };
+  }
+  function drawQuote(id, lic, discount) {
+    const q = quoteOf(lic, discount);
+    $(id).innerHTML = q.lines.length
+      ? q.lines.map((l) => `<div class="ql"><span>${esc(l[0])}</span><span>${l[1]}</span></div>`).join('') + `<div class="ql qt"><span>Monthly price</span><span>${q.total} SAR</span></div>`
+      : '<div class="ql"><span class="muted">Free (no monthly price)</span></div>';
+  }
+  const createQuote = () => drawQuote('cQuote', { plan: $('cPlan').value, portals: portalsOf('cPortals'), max_devices: $('cPcs').value, ai_quota: $('cAi').value }, $('cDisc').value);
+  const editQuote = () => current && drawQuote('eQuote', { plan: current.plan, portals: portalsOf('ePortals'), max_devices: $('eDevices').value, ai_quota: $('eAi').value }, $('eDisc').value);
   const live = (l) => l.status === 'active' && !expired(l);
 
   function statusPill(l) {
@@ -142,7 +168,7 @@
     $('list').innerHTML = rows.map((l) => `
       <tr class="click${current && current.key === l.key ? ' sel' : ''}" data-key="${esc(l.key)}">
         <td class="mono">${esc(l.key)}</td><td>${esc(l.agency)}</td>
-        <td>${esc(l.plan)}</td><td>${price(l) ? `${price(l)} SAR${l.price != null && l.price !== planPrice(l.plan) ? ' <span class="muted small">custom</span>' : ''}` : '<span class="muted">free</span>'}</td>
+        <td>${esc(l.plan)}</td><td>${price(l) ? `${price(l)} SAR${price(l) !== planPrice(l.plan) ? ` <span class="muted small">${l.discount ? `−${esc(l.discount)}` : 'add-ons'}</span>` : ''}` : '<span class="muted">free</span>'}</td>
         <td>${statusPill(l)}</td><td>${expiryCell(l)}</td><td>${l.devices_used || 0} / ${l.max_devices}</td>
         <td>${aiCell(l)}</td><td>${l.parse_count || 0}</td><td>${l.fill_count || 0}</td><td>${ago(l.last_seen)}</td>
       </tr>`).join('') || '<tr><td colspan="11" class="muted">No licences yet. Create the first key below.</td></tr>';
@@ -154,6 +180,7 @@
     $('sIncome').textContent = paid.reduce((s, l) => s + price(l), 0);
     $('sAi').textContent = data.totals.ai;
     $('sFills').textContent = data.totals.fills || 0;
+    for (const [id, k] of [['rPortal', 'portal'], ['rPc', 'pc'], ['rAi', 'ai100']]) if (document.activeElement !== $(id)) $(id).value = data.rates[k];
     if (document.activeElement !== $('minVersion')) $('minVersion').value = (data.settings && data.settings.min_version) || '';
     const sup = (data.settings && data.settings.support) || {};
     if (document.activeElement !== $('supWa')) $('supWa').value = sup.whatsapp || '';
@@ -194,9 +221,10 @@
     $('detail').hidden = false;
     $('confirmBox').innerHTML = '';
     $('dTitle').innerHTML = `<span class="mono">${esc(l.key)}</span> · ${esc(l.agency || 'no name')} · ${esc(l.plan)}${l.status === 'blocked' ? ' · <span class="pill p-bad">Blocked</span>' : ''}`;
-    $('eAgency').value = l.agency; $('eContact').value = l.contact; $('eDevices').value = l.max_devices; $('eAi').value = l.ai_quota; $('eNotes').value = l.notes; $('ePrice').value = price(l);
-    $('paidPrice').value = '';
+    $('eAgency').value = l.agency; $('eContact').value = l.contact; $('eDevices').value = l.max_devices; $('eAi').value = l.ai_quota; $('eNotes').value = l.notes; $('eDisc').value = l.discount || '';
+    $('paidDisc').value = '';
     drawPortals('ePortals', l.portals);
+    editQuote();
     $('aiTest').hidden = l.plan !== 'trial';
     $('addAi').hidden = l.plan === 'trial' || l.ai_quota < 0;
     $('block').hidden = l.status === 'blocked';
@@ -233,8 +261,8 @@
     $('cDays').disabled = plan === 'owner';
     $('cPcs').value = p.max_devices;
     $('cAi').value = p.ai_quota;
-    $('cPrice').value = planPrice(plan);
     drawPortals('cPortals', p.portals);
+    createQuote();
   }
   function message(key) {
     return `Assalam o Alaikum! Your SafarFill licence key:\n${key}\n\n1. Install SafarFill: ${STORE_LINK}\n2. Click the SafarFill icon and enter this key.\n\nContact us if you need help.`;
@@ -272,14 +300,14 @@
     try {
       const j = await api('/admin/api/licences', {
         plan: $('cPlan').value, agency: $('cAgency').value, contact: $('cContact').value,
-        days: $('cDays').value, max_devices: $('cPcs').value, ai_quota: $('cAi').value, price: $('cPrice').value,
+        days: $('cDays').value, max_devices: $('cPcs').value, ai_quota: $('cAi').value, discount: $('cDisc').value,
         portals: portalsOf('cPortals'), notes: $('cNotes').value,
       });
       const msg = message(j.key);
       $('newKey').innerHTML = `<div class="newkey"><div class="small muted">New key for ${esc($('cAgency').value || 'this agency')}</div><div class="mono">${esc(j.key)}</div><div class="wa">${esc(msg)}</div><div class="row" style="margin-top:8px"><button id="copyKey" class="small">Copy key</button><button id="copyMsg" class="small">Copy WhatsApp message</button></div></div>`;
       $('copyKey').addEventListener('click', () => copy(j.key, 'Key copied.'));
       $('copyMsg').addEventListener('click', () => copy(msg, 'Message copied. Paste it in WhatsApp.'));
-      $('cAgency').value = ''; $('cContact').value = ''; $('cNotes').value = '';
+      $('cAgency').value = ''; $('cContact').value = ''; $('cNotes').value = ''; $('cDisc').value = ''; createQuote();
       await load();
       toast('Key created.');
     } finally { btn.disabled = false; }
@@ -292,11 +320,28 @@
   $('dClose').addEventListener('click', () => { $('detail').hidden = true; current = null; render(); });
   $('save').addEventListener('click', run(() => act(current.key, 'update', { fields: {
     agency: $('eAgency').value, contact: $('eContact').value, max_devices: $('eDevices').value,
-    ai_quota: $('eAi').value, notes: $('eNotes').value, portals: portalsOf('ePortals'), price: $('ePrice').value,
+    ai_quota: $('eAi').value, notes: $('eNotes').value, portals: portalsOf('ePortals'), discount: $('eDisc').value,
   } })));
   $('ext30').addEventListener('click', run(() => act(current.key, 'extend', { days: 30 })));
   $('extN').addEventListener('click', run(() => act(current.key, 'extend', { days: $('extDays').value })));
-  $('makePaid').addEventListener('click', () => askConfirm(`Change ${current.agency || current.key} to ${$('paidPlan').value} at ${$('paidPrice').value || planPrice($('paidPlan').value)} SAR/month, valid 30 days from today?`, () => act(current.key, 'make_paid', { plan: $('paidPlan').value, price: $('paidPrice').value })));
+  $('makePaid').addEventListener('click', () => {
+    const plan = $('paidPlan').value; const d = data.plans[plan];
+    const disc = $('paidDisc').value.trim() || current.discount || '';
+    const portals = plan === 'starter' && current.portals.length < data.portals.length ? current.portals : d.portals;
+    const q = quoteOf({ plan, portals, max_devices: Math.max(current.max_devices, d.max_devices), ai_quota: d.ai_quota }, disc);
+    askConfirm(`Change ${current.agency || current.key} to ${plan}${q.total ? ` at ${q.total} SAR/month` : ''}, valid 30 days from today?`,
+      () => act(current.key, 'make_paid', { plan, discount: $('paidDisc').value.trim() || undefined }));
+  });
+  $('saveRates').addEventListener('click', run(async () => {
+    await api('/admin/api/action', { action: 'set_rates', rates: { portal: $('rPortal').value, pc: $('rPc').value, ai100: $('rAi').value } });
+    await load();
+    createQuote(); editQuote();
+    toast('Add-on prices saved.');
+  }));
+  for (const id of ['cPcs', 'cAi', 'cDisc']) $(id).addEventListener('input', createQuote);
+  $('cPortals').addEventListener('change', createQuote);
+  for (const id of ['eDevices', 'eAi', 'eDisc']) $(id).addEventListener('input', editQuote);
+  $('ePortals').addEventListener('change', editQuote);
   $('ai5').addEventListener('click', run(() => act(current.key, 'ai_test', { amount: 5 })));
   $('ai10').addEventListener('click', run(() => act(current.key, 'ai_test', { amount: 10 })));
   $('addAi').addEventListener('click', run(() => act(current.key, 'add_ai', { amount: 100 })));

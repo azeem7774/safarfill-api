@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS licences (
   notes        TEXT NOT NULL DEFAULT '',
   created_at   INTEGER NOT NULL,
   activated_at INTEGER,
-  price        INTEGER                    -- monthly price in SAR agreed with this agency; NULL = plan price
+  price        INTEGER,                   -- monthly price in SAR = plan + add-ons − discount (worked out by the server)
+  discount     TEXT NOT NULL DEFAULT ''   -- '' | '20' (SAR) | '10%'
 );
 
 CREATE TABLE IF NOT EXISTS devices (

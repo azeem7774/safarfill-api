@@ -1,4 +1,4 @@
-# SafarFill licence server — API for the extension (v1.4.0)
+# SafarFill licence server — API for the extension (v1.5.0)
 
 Base URL: `https://safarfill-api.azeemhfd.workers.dev`
 Worker name `safarfill-api`, D1 database `safarfill` (binding `DB`). Separate from `fq-relay`: no shared code, database or secrets.
@@ -71,4 +71,9 @@ Send the extension's version in `/v1/session` (`"version": "1.1.0"`). If you set
 - **Settings → Oldest SafarFill version allowed**: older versions must update.
 - **Settings → Support WhatsApp / email**: shown in SafarFill as "WhatsApp us" / email.
 - Actions: Payment received (+30 days), + days, change plan, AI test (5/10, trials), +100 AI reads, +1 computer, block/unblock, remove one or all computers.
-- Each licence has its own **monthly price (SAR)**, filled from the plan (Starter 79, Standard 149, trial/owner 0) and editable for extra portals, extra computers or discounts. Monthly income adds up these prices. The price column is added to older databases automatically.
+- **Monthly price = plan + add-ons − discount**, worked out by the server and shown as a breakdown in the create and edit forms.
+  - Plan: Starter 79, Standard 149; trial and owner are free.
+  - Add-ons (defaults, editable in Settings → Add-on prices): extra portal 30 (Starter only; Starter includes 1), extra computer 25 (beyond the plan's), 100 AI reads 15 (beyond the plan's, per started 100).
+  - Discount per licence: SAR (`20`) or percent (`10%`).
+  - The price is recalculated whenever a licence changes (+1 computer, +100 AI reads, plan change, edit). New add-on prices apply to a licence the next time it changes.
+  - Older databases: a typed price lower than the new sum becomes that licence's discount, so nobody's price changes.
