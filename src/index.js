@@ -15,7 +15,7 @@ import { TOOL, PROMPT } from './prompt.js';
 import ADMIN_HTML from './admin.html';
 import ADMIN_JS from './admin.client.js.txt';
 
-const API_VERSION = '1.3.0';
+const API_VERSION = '1.4.0';
 const DAY = 86400000;
 const PASS_MS = DAY; // a pass lets the extension keep working offline for up to a day
 
@@ -296,7 +296,7 @@ async function session(env, req) {
   const exp = lic.expires_at ? Math.min(t + PASS_MS, lic.expires_at) : t + PASS_MS;
   const pass = await signPass(env, { k: key, d: device, p: lic.portals, plan: lic.plan, v: version, exp });
   const usage = await getUsage(env, key, usageMonth(lic, t));
-  return json({ ok: true, pass, pass_expires: exp, licence: licenceView(lic, usage) });
+  return json({ ok: true, pass, pass_expires: exp, licence: licenceView(lic, usage), support: await getSupport(env) });
 }
 
 function cleanLines(list, max) {
@@ -486,6 +486,15 @@ async function ensureSchema(env) {
   schemaChecked = true;
 }
 
+async function getSupport(env) {
+  return { whatsapp: (await getSetting(env, 'support_whatsapp')) || '', email: (await getSetting(env, 'support_email')) || '' };
+}
+
+async function setSetting(env, name, value) {
+  if (value) await env.DB.prepare('INSERT INTO settings (name, value) VALUES (?1, ?2) ON CONFLICT (name) DO UPDATE SET value = ?2').bind(name, value).run();
+  else await env.DB.prepare('DELETE FROM settings WHERE name = ?1').bind(name).run();
+}
+
 async function getSetting(env, name) {
   const row = await env.DB.prepare('SELECT value FROM settings WHERE name = ?1').bind(name).first();
   return row ? row.value : '';
@@ -531,7 +540,7 @@ async function adminList(env) {
   ).bind(t - 2 * DAY).all()).results;
   return json({ ok: true, now: t, month: monthOf(t), plans: PLANS, prices: PRICES, portals: ALL_PORTALS,
     licences: results.map((r) => ({ ...r, portals: safeList(r.portals) })), totals, feed, open,
-    settings: { min_version: await getSetting(env, 'min_version') } });
+    settings: { min_version: await getSetting(env, 'min_version'), support: await getSupport(env) } });
 }
 
 async function adminCreate(env, req) {
@@ -577,6 +586,16 @@ async function adminAction(env, req) {
     else await env.DB.prepare('DELETE FROM settings WHERE name = \'min_version\'').run();
     await addEvent(env, 'SYSTEM', 'info', 'min_version', v ? `Minimum SafarFill version set to ${v}` : 'Minimum SafarFill version removed', v ? UPDATE_MSG : '');
     return json({ ok: true, min_version: v });
+  }
+  if (b.action === 'set_support') {
+    const wa = String(b.whatsapp || '').replace(/[\s\-()+]/g, '');
+    const email = cleanText(b.email, 100);
+    if (wa && !/^\d{8,15}$/.test(wa)) return fail(400, 'bad_whatsapp', 'Write the WhatsApp number with country code, e.g. 966512345678.');
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return fail(400, 'bad_email', 'That email does not look right.');
+    await setSetting(env, 'support_whatsapp', wa);
+    await setSetting(env, 'support_email', email);
+    await addEvent(env, 'SYSTEM', 'info', 'support', `Support contact set: ${wa ? '+' + wa : 'no WhatsApp'}, ${email || 'no email'}`);
+    return json({ ok: true, support: { whatsapp: wa, email } });
   }
   if (b.action === 'dismiss') {
     await env.DB.prepare('UPDATE events SET done = 1 WHERE id = ?1').bind(intOr(b.event_id, 0)).run();
@@ -691,6 +710,7 @@ export default {
       if (path === '/') return new Response('SafarFill API', { headers: { 'content-type': 'text/plain' } });
       if (path === '/favicon.ico') return new Response(null, { status: 204 });
       if (path === '/v1/ping') return json({ ok: true, version: API_VERSION });
+      if (path === '/v1/support') return json({ ok: true, ...(await getSupport(env)) });
       if (path === '/v1/session' && req.method === 'POST') return await session(env, req);
       if (path === '/v1/parse' && req.method === 'POST') return await parse(env, req);
       if (path === '/v1/ai' && req.method === 'POST') return await aiRead(env, req);

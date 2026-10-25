@@ -1,4 +1,4 @@
-# SafarFill licence server — API for the extension (v1.3.0)
+# SafarFill licence server — API for the extension (v1.4.0)
 
 Base URL: `https://safarfill-api.azeemhfd.workers.dev`
 Worker name `safarfill-api`, D1 database `safarfill` (binding `DB`). Separate from `fq-relay`: no shared code, database or secrets.
@@ -22,7 +22,7 @@ Start or refresh. Call when the popup opens if there is no pass or it ends withi
 
 Request: `{ "key": "SF-XXXX-XXXX-XXXX", "device": "<random id made once at install, 8–64 of A-Z a-z 0-9 ->", "version": "1.1.0" }`
 
-Answer: `{ ok: true, pass, pass_expires, licence: { plan, agency, portals: [...], expires_at, ai_quota, ai_used, ai_left } }`
+Answer: `{ ok: true, pass, pass_expires, licence: { plan, agency, portals: [...], expires_at, ai_quota, ai_used, ai_left }, support: { whatsapp, email } }`
 - `pass` goes in `Authorization: Bearer <pass>` on every other call. It lasts up to 24 hours: the extension may keep working **offline** until `pass_expires`.
 - `expires_at` / `ai_left` are `null` for no limit.
 
@@ -58,6 +58,9 @@ Errors: `ai_not_in_plan` (402: AI is off on this licence, e.g. a trial; show the
 ## Version check (all calls)
 Send the extension's version in `/v1/session` (`"version": "1.1.0"`). If you set a minimum version in the dashboard, older versions get `update_required` (426) on every call. Show the message; it tells the user to update.
 
+## GET /v1/support
+`{ ok: true, whatsapp, email }`. No licence needed, so the licence screen can show it before a key is entered or after a licence ends. `whatsapp` is digits with country code (e.g. `966512345678`); open `https://wa.me/<whatsapp>`. Empty string = not set: hide that button. Cache the last answer in chrome.storage.local for offline use.
+
 ## GET /v1/ping
 `{ ok: true, version }`. No licence needed.
 
@@ -66,5 +69,6 @@ Send the extension's version in `/v1/session` (`"version": "1.1.0"`). If you set
 - **Activity**: everything that happened, including refused attempts and what the agent was shown. The same refusal is recorded once per hour per licence.
 - **Forms filled** per licence and per month (counted by /v1/fill).
 - **Settings → Oldest SafarFill version allowed**: older versions must update.
+- **Settings → Support WhatsApp / email**: shown in SafarFill as "WhatsApp us" / email.
 - Actions: Payment received (+30 days), + days, change plan, AI test (5/10, trials), +100 AI reads, +1 computer, block/unblock, remove one or all computers.
 - Each licence has its own **monthly price (SAR)**, filled from the plan (Starter 79, Standard 149, trial/owner 0) and editable for extra portals, extra computers or discounts. Monthly income adds up these prices. The price column is added to older databases automatically.

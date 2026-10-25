@@ -155,6 +155,9 @@
     $('sAi').textContent = data.totals.ai;
     $('sFills').textContent = data.totals.fills || 0;
     if (document.activeElement !== $('minVersion')) $('minVersion').value = (data.settings && data.settings.min_version) || '';
+    const sup = (data.settings && data.settings.support) || {};
+    if (document.activeElement !== $('supWa')) $('supWa').value = sup.whatsapp || '';
+    if (document.activeElement !== $('supEmail')) $('supEmail').value = sup.email || '';
     const sar = data.totals.cost * USD_TO_SAR;
     $('sCost').textContent = `${sar.toFixed(sar < 10 ? 2 : 0)} SAR`;
     drawAttention();
@@ -255,6 +258,12 @@
     const j = await api('/admin/api/action', { action: 'set_min_version', version: $('minVersion').value.trim() });
     await load();
     toast(j.min_version ? `Versions older than ${j.min_version} must now update.` : 'All versions allowed.');
+  }));
+
+  $('saveSup').addEventListener('click', run(async () => {
+    await api('/admin/api/action', { action: 'set_support', whatsapp: $('supWa').value.trim(), email: $('supEmail').value.trim() });
+    await load();
+    toast('Support contact saved.');
   }));
 
   $('create').addEventListener('click', run(async () => {

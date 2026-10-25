@@ -127,4 +127,10 @@ ok(newS.j.ok && (await post('/v1/fill', { portal: 'alhind' }, { authorization: '
 ok((await get('/admin/api/licences', A)).j.settings.min_version === '1.2.0', 'setting shown');
 await post('/admin/api/action', { action: 'set_min_version', version: '' }, A);
 ok((await post('/v1/fill', { portal: 'alhind' }, FP)).j.ok, 'old allowed again after clearing');
+ok((await post('/admin/api/action', { action: 'set_support', whatsapp: '12' }, A)).s === 400, 'bad whatsapp refused');
+ok((await post('/admin/api/action', { action: 'set_support', whatsapp: '+966 51-234-5678', email: 'help@sahl.test' }, A)).j.support.whatsapp === '966512345678', 'support saved');
+const sp = (await get('/v1/support')).j;
+ok(sp.whatsapp === '966512345678' && sp.email === 'help@sahl.test', 'support public');
+ok((await post('/v1/session', { key: fk.j.key, device: 'dev-fill-0001', version: '1.2.0' })).j.support.whatsapp === '966512345678', 'support in session');
+ok((await get('/admin/api/licences', A)).j.settings.support.email === 'help@sahl.test', 'support in dashboard');
 console.log(`passed ${pass}, failed ${failN}`);
