@@ -15,7 +15,7 @@ import { TOOL, PROMPT } from './prompt.js';
 import ADMIN_HTML from './admin.html';
 import ADMIN_JS from './admin.client.js.txt';
 
-const API_VERSION = '1.6.2';
+const API_VERSION = '1.7.0';
 const DAY = 86400000;
 const PASS_MS = DAY; // a pass lets the extension keep working offline for up to a day
 
@@ -399,9 +399,39 @@ function friendlyAi(status, message) {
   return ['ai_refused', 'The AI service could not read this image. Try a clearer photo or type the details.'];
 }
 
+// Every /v1/ai call is logged per computer (counts and result only; never the image or passport details).
 async function aiRead(env, req) {
+  const pass = await readPass(env, (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, ''));
+  const size = Math.round((+(req.headers.get('content-length') || 0)) * 3 / 4);
   const g = await requireLicence(env, req);
-  if (g.error) return g.error;
+  const res = g.error ? g.error : await aiCall(env, req, g);
+  if (pass) {
+    let body = {};
+    try { body = await res.clone().json(); } catch (e) { /* not JSON */ }
+    try { await logAiCall(env, pass, body.ok ? 'ok' : String(body.error || 'error').slice(0, 30), body.ai_left == null ? null : body.ai_left, size); } catch (e) { /* logging must never break a read */ }
+  }
+  return res;
+}
+
+const AI_BURST = 30;   // AI calls by one computer in one hour
+const AI_REFUSED = 5;  // refused AI calls (quota / not in plan) by one computer in one hour
+async function logAiCall(env, pass, result, aiLeft, size) {
+  const t = now();
+  await env.DB.prepare('INSERT INTO ai_calls (at, key, device, version, result, ai_left, size) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)')
+    .bind(t, pass.k, pass.d, String(pass.v || '').slice(0, 20), result, aiLeft, size).run();
+  const c = await env.DB.prepare(
+    "SELECT COUNT(*) AS n, SUM(CASE WHEN result IN ('quota', 'ai_not_in_plan') THEN 1 ELSE 0 END) AS refused FROM ai_calls WHERE key = ?1 AND device = ?2 AND at > ?3"
+  ).bind(pass.k, pass.d, t - 3600000).first();
+  const dev = pass.d.slice(0, 8);
+  if (c && c.n === AI_BURST + 1) {
+    await addEvent(env, pass.k, 'warn', 'ai_burst', `Computer ${dev} made more than ${AI_BURST} AI calls in one hour`, '', 60);
+  }
+  if (c && c.refused === AI_REFUSED + 1) {
+    await addEvent(env, pass.k, 'warn', 'ai_refused_burst', `Computer ${dev} had more than ${AI_REFUSED} refused AI calls (limit / not in plan) in one hour`, '', 60);
+  }
+}
+
+async function aiCall(env, req, g) {
   const { lic, t } = g;
   const month = usageMonth(lic, t);
   const usage = await getUsage(env, lic.key, month);
@@ -515,6 +545,10 @@ async function ensureSchema(env) {
       contact TEXT NOT NULL DEFAULT '', plan TEXT NOT NULL, portals TEXT NOT NULL, max_devices INTEGER NOT NULL, ai_quota INTEGER NOT NULL,
       discount TEXT NOT NULL DEFAULT '', lines TEXT NOT NULL, price INTEGER NOT NULL, valid_until INTEGER NOT NULL,
       status TEXT NOT NULL DEFAULT 'sent', key TEXT, notes TEXT NOT NULL DEFAULT '')`,
+    `CREATE TABLE IF NOT EXISTS ai_calls (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, key TEXT NOT NULL, device TEXT NOT NULL,
+      version TEXT NOT NULL DEFAULT '', result TEXT NOT NULL, ai_left INTEGER, size INTEGER NOT NULL DEFAULT 0)`,
+    'CREATE INDEX IF NOT EXISTS ai_calls_key ON ai_calls (key, at)',
+    'CREATE INDEX IF NOT EXISTS ai_calls_dev ON ai_calls (key, device, at)',
   ]) {
     try { await env.DB.prepare(sql).run(); } catch (e) { /* already there */ }
   }
@@ -595,7 +629,7 @@ async function adminList(env) {
   // Open refusals from the last two days that you may want to act on.
   const open = (await env.DB.prepare(
     `SELECT e.*, l.agency FROM events e LEFT JOIN licences l ON l.key = e.key
-     WHERE e.done = 0 AND e.at > ?1 AND e.code IN ('device_limit', 'ai_not_in_trial', 'ai_unavailable', 'device_removed', 'portal_not_in_plan')
+     WHERE e.done = 0 AND e.at > ?1 AND e.code IN ('device_limit', 'ai_not_in_trial', 'ai_unavailable', 'device_removed', 'portal_not_in_plan', 'ai_burst', 'ai_refused_burst')
      ORDER BY e.at DESC LIMIT 30`
   ).bind(t - 2 * DAY).all()).results;
   return json({ ok: true, now: t, month: monthOf(t), plans: PLANS, prices: PRICES, rates: await getRates(env), portals: ALL_PORTALS,
@@ -701,7 +735,16 @@ async function adminDetail(env, key) {
   const devices = (await env.DB.prepare('SELECT * FROM devices WHERE key = ?1 ORDER BY first_seen').bind(key).all()).results;
   const usage = (await env.DB.prepare('SELECT * FROM usage WHERE key = ?1 ORDER BY month DESC LIMIT 12').bind(key).all()).results;
   const log = (await env.DB.prepare('SELECT * FROM events WHERE key = ?1 ORDER BY at DESC LIMIT 40').bind(key).all()).results;
-  return json({ ok: true, licence: lic, devices, usage, log, quote: quote(lic, lic.discount, await getRates(env)) });
+  // AI reads per computer (answered calls: ok or no_details), this month and in total, plus the last 50 AI calls.
+  const d = new Date(now());
+  const monthStart = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1);
+  const aiByDevice = (await env.DB.prepare(
+    `SELECT device, SUM(CASE WHEN result IN ('ok', 'no_details') THEN 1 ELSE 0 END) AS total,
+       SUM(CASE WHEN result IN ('ok', 'no_details') AND at >= ?2 THEN 1 ELSE 0 END) AS month, COUNT(*) AS calls, MAX(at) AS last
+     FROM ai_calls WHERE key = ?1 GROUP BY device ORDER BY last DESC`
+  ).bind(key, monthStart).all()).results;
+  const aiCalls = (await env.DB.prepare('SELECT at, device, version, result, ai_left, size FROM ai_calls WHERE key = ?1 ORDER BY at DESC, id DESC LIMIT 50').bind(key).all()).results;
+  return json({ ok: true, licence: lic, devices, usage, log, ai_by_device: aiByDevice, ai_calls: aiCalls, quote: quote(lic, lic.discount, await getRates(env)) });
 }
 
 async function adminAction(env, req) {
@@ -806,6 +849,7 @@ async function adminAction(env, req) {
         env.DB.prepare('DELETE FROM devices WHERE key = ?1').bind(key),
         env.DB.prepare('DELETE FROM usage WHERE key = ?1').bind(key),
         env.DB.prepare('DELETE FROM events WHERE key = ?1').bind(key),
+        env.DB.prepare('DELETE FROM ai_calls WHERE key = ?1').bind(key),
         env.DB.prepare('DELETE FROM licences WHERE key = ?1').bind(key),
       ]);
       await addEvent(env, 'SYSTEM', 'info', 'deleted', `Key ${key}${lic.agency ? ` (${lic.agency})` : ''} deleted`);

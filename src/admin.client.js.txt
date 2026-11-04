@@ -115,6 +115,10 @@
         items.push({ lvl: 'info', title: `${who} wants to try AI reading`, text: 'Give a small AI test if they insist.', acts: [['Give 5', () => act(e.key, 'ai_test', { amount: 5 })], ['Give 10', () => act(e.key, 'ai_test', { amount: 10 })], ['Dismiss', () => dismiss(e.id)]] });
       } else if (e.code === 'portal_not_in_plan') {
         items.push({ lvl: 'info', title: `${who} tried a portal not in their plan`, text: e.what, acts: [['Open', () => openDetail(e.key)], ['Dismiss', () => dismiss(e.id)]] });
+      } else if (e.code === 'ai_burst') {
+        items.push({ lvl: 'warn', title: `${who}: unusually many AI reads`, text: `${e.what}. Check the AI calls on this licence: a shared key or a loop.`, acts: [['Open', () => openDetail(e.key)], ['Dismiss', () => dismiss(e.id)]] });
+      } else if (e.code === 'ai_refused_burst') {
+        items.push({ lvl: 'warn', title: `${who}: AI keeps being refused`, text: `${e.what}. They may need more AI reads or AI in their plan.`, acts: [['+100 AI reads', () => act(e.key, 'add_ai', { amount: 100 })], ['Open', () => openDetail(e.key)], ['Dismiss', () => dismiss(e.id)]] });
       } else if (e.code === 'device_removed') {
         items.push({ lvl: 'warn', title: `${who}: a removed computer is still trying`, text: 'If this is wrong, open the licence and allow the computer again.', acts: [['Open', () => openDetail(e.key)], ['Dismiss', () => dismiss(e.id)]] });
       }
@@ -299,6 +303,9 @@
     $('unblock').hidden = l.status !== 'blocked';
     $('dDevices').innerHTML = j.devices.map((d) => `<tr><td class="mono">${esc(d.device.slice(0, 8))}…</td><td>${esc(d.version)}</td><td>${ago(d.last_seen)}</td><td><button class="small danger" data-dev="${esc(d.device)}">Remove</button></td></tr>`).join('') || '<tr><td colspan="4" class="muted">Not used on any computer yet.</td></tr>';
     $('dUsage').innerHTML = j.usage.map((u) => `<tr><td>${esc(u.month)}</td><td>${u.parse_count}</td><td>${u.fill_count || 0}</td><td>${u.ai_count}</td><td>${(u.ai_cost_usd * USD_TO_SAR).toFixed(2)} SAR</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No use yet.</td></tr>';
+    const resultPill = (r) => `<span class="pill ${r === 'ok' ? 'p-ok' : r === 'no_details' ? 'p-muted' : r === 'quota' || r === 'ai_not_in_plan' ? 'p-warn' : 'p-bad'}">${esc(r)}</span>`;
+    $('dAiDev').innerHTML = (j.ai_by_device || []).map((d) => `<tr><td class="mono">${esc(d.device.slice(0, 8))}…</td><td>${d.month || 0}</td><td>${d.total || 0}</td><td>${d.calls}</td><td>${ago(d.last)}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No AI calls yet.</td></tr>';
+    $('dAiCalls').innerHTML = (j.ai_calls || []).map((c) => `<tr><td class="muted small">${fmtTime(c.at)}</td><td class="mono">${esc(c.device.slice(0, 8))}…</td><td>${esc(c.version)}</td><td>${resultPill(c.result)}</td><td>${c.ai_left == null ? '—' : c.ai_left}</td><td>${c.size ? `${Math.round(c.size / 1024)} KB` : '—'}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No AI calls yet.</td></tr>';
     $('dLog').innerHTML = j.log.map((e) => `<tr><td class="muted small">${fmtTime(e.at)}</td><td class="wrap">${esc(e.what)}</td></tr>`).join('');
     if (data) render();
   }

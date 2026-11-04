@@ -184,4 +184,29 @@ ok((await post('/admin/api/action', { key: dk.j.key, action: 'delete_licence' },
 ok(!(await get('/admin/api/licences', A)).j.licences.some((l) => l.key === dk.j.key), 'gone from list');
 ok((await post('/v1/parse', { lines: [L1, L2] }, { authorization: 'Bearer ' + ds.j.pass })).s >= 400, 'deleted key stops working');
 ok((await post('/v1/session', { key: dk.j.key, device: 'dev-del-00001', version: '1.1.0' })).s === 403, 'deleted key refused');
+// AI call log per computer
+const ak = await post('/admin/api/licences', { plan: 'standard', agency: 'AI Log Co', max_devices: 2 }, A);
+const as1 = await post('/v1/session', { key: ak.j.key, device: 'dev-ailog-0001', version: '1.1.2' });
+const as2 = await post('/v1/session', { key: ak.j.key, device: 'dev-ailog-0002', version: '1.1.2' });
+const aiPost = (pass) => fetch(B + '/v1/ai', { method: 'POST', headers: { authorization: 'Bearer ' + pass, 'content-type': 'text/plain', 'x-image-type': 'image/jpeg' }, body: 'QUJDREVGR0hJSktMTU5PUFFS' }).then((r) => r.json());
+ok((await aiPost(as1.j.pass)).ok, 'ai ok pc1');
+await aiPost(as1.j.pass); await aiPost(as2.j.pass);
+let ad = (await get('/admin/api/licence?key=' + ak.j.key, A)).j;
+const d1 = ad.ai_by_device.find((d) => d.device === 'dev-ailog-0001');
+ok(d1 && d1.total === 2 && d1.month === 2 && ad.ai_by_device.length === 2, 'ai per computer ' + JSON.stringify(ad.ai_by_device));
+ok(ad.ai_calls.length === 3 && ad.ai_calls[0].result === 'ok' && ad.ai_calls[0].version === '1.1.2' && ad.ai_calls[0].size > 0 && ad.ai_calls[0].ai_left === 797, 'last ai calls ' + JSON.stringify(ad.ai_calls[0]));
+ok(!JSON.stringify(ad.ai_calls).includes('QUJD'), 'image not stored');
+// burst: >30 calls in an hour from one computer (rate limit answers are logged too)
+for (let i = 0; i < 29; i++) await aiPost(as1.j.pass);
+let al = (await get('/admin/api/licences', A)).j;
+ok(al.open.some((e) => e.code === 'ai_burst' && e.key === ak.j.key), 'ai burst alert');
+// refused burst: trial without AI, 6 refused calls
+const rk2 = await post('/admin/api/licences', { plan: 'trial', agency: 'Refused Co' }, A);
+const rs2 = await post('/v1/session', { key: rk2.j.key, device: 'dev-refuse-001', version: '1.1.2' });
+for (let i = 0; i < 6; i++) await aiPost(rs2.j.pass);
+al = (await get('/admin/api/licences', A)).j;
+ok(al.open.some((e) => e.code === 'ai_refused_burst' && e.key === rk2.j.key), 'refused burst alert');
+const rd = (await get('/admin/api/licence?key=' + rk2.j.key, A)).j;
+ok(rd.ai_calls.length === 6 && rd.ai_calls.every((c) => c.result === 'ai_not_in_plan') && rd.ai_by_device[0].total === 0, 'refused calls logged, not counted as reads');
+await post('/admin/api/action', { key: ak.j.key, action: 'delete_licence' }, A);
 console.log(`passed ${pass}, failed ${failN}`);

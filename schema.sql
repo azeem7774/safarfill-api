@@ -63,6 +63,20 @@ CREATE TABLE IF NOT EXISTS quotes (
   notes       TEXT NOT NULL DEFAULT ''
 );
 
+-- One row per /v1/ai call (counts and result only; never the image or passport details).
+CREATE TABLE IF NOT EXISTS ai_calls (
+  id      INTEGER PRIMARY KEY AUTOINCREMENT,
+  at      INTEGER NOT NULL,
+  key     TEXT NOT NULL,
+  device  TEXT NOT NULL,                 -- from the pass
+  version TEXT NOT NULL DEFAULT '',      -- SafarFill version from the pass
+  result  TEXT NOT NULL,                 -- ok | no_details | quota | ai_not_in_plan | other error code
+  ai_left INTEGER,                       -- after the call; NULL = no limit or unknown
+  size    INTEGER NOT NULL DEFAULT 0     -- image size in bytes (approx.)
+);
+CREATE INDEX IF NOT EXISTS ai_calls_key ON ai_calls (key, at);
+CREATE INDEX IF NOT EXISTS ai_calls_dev ON ai_calls (key, device, at);
+
 CREATE TABLE IF NOT EXISTS rate (
   key    TEXT NOT NULL,
   kind   TEXT NOT NULL,                   -- parse | ai

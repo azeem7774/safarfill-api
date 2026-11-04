@@ -1,4 +1,4 @@
-# SafarFill licence server — API for the extension (v1.6.2)
+# SafarFill licence server — API for the extension (v1.7.0)
 
 Base URL: `https://safarfill-api.azeemhfd.workers.dev`
 Worker name `safarfill-api`, D1 database `safarfill` (binding `DB`). Separate from `fq-relay`: no shared code, database or secrets.
@@ -49,6 +49,8 @@ Reads one passport/iqama image with the AI using the server's key. Nothing is st
 
 Errors: `ai_not_in_plan` (402: AI is off on this licence, e.g. a trial; show the message: "Read with AI is not included in the free trial. Contact Sahl Labs to try it."), `quota` (402), `bad_image`, `too_large`, `ai_busy`, `ai_unavailable`, `ai_refused`, `too_many`, plus the licence errors above.
 
+**AI call log (v1.7.0):** every POST /v1/ai is recorded per computer: time, licence key, device id (from the pass), extension version, result (`ok`, `no_details`, `quota`, `ai_not_in_plan`, or another error code), `ai_left` after the call, and the image size. The image and passport details are never stored. Nothing changes for the extension.
+
 ## POST /v1/fill  (Bearer pass)
 "May I fill?" Call it **every time Fill form is pressed**, before filling. Fill only when the answer is `ok: true`.
 - Body: `{ "portal": "akbar" | "alhind" | "airsial" | "muqeem" }`
@@ -83,4 +85,7 @@ Send the extension's version in `/v1/session` (`"version": "1.1.0"`). If you set
   - **Copy text**: the same quote as a WhatsApp message.
   - **Accept → key**: makes the licence with exactly the quoted settings and price, even if the add-on prices changed since.
   - **Declined**: marks it declined. Status: sent / accepted / declined / expired.
+- **AI reads per computer** on each licence: AI reads this month and in total (answered calls: ok or no_details), all AI calls, last call; plus the **last 50 AI calls** with time, computer, version, result, AI left and image size.
+- **Needs your attention** also shows a computer with **more than 30 AI calls in one hour** (`ai_burst`), or **more than 5 refused AI calls (quota / not in plan) in one hour** (`ai_refused_burst`). Each is raised at most once per hour per licence.
+- Delete key also removes that key's AI call log.
 
