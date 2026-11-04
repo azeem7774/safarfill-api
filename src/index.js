@@ -15,7 +15,7 @@ import { TOOL, PROMPT } from './prompt.js';
 import ADMIN_HTML from './admin.html';
 import ADMIN_JS from './admin.client.js.txt';
 
-const API_VERSION = '1.7.0';
+const API_VERSION = '1.8.0';
 const DAY = 86400000;
 const PASS_MS = DAY; // a pass lets the extension keep working offline for up to a day
 
@@ -320,7 +320,7 @@ async function session(env, req) {
     }
     await env.DB.prepare('INSERT INTO devices (key, device, version, first_seen, last_seen) VALUES (?1, ?2, ?3, ?4, ?4)')
       .bind(key, device, version, t).run();
-    await addEvent(env, key, 'info', 'device_added', `Computer added (${device.slice(0, 8)})`);
+    await addEvent(env, key, 'info', 'device_added', `Computer added (${await deviceLabel(env, key, device)})`);
   }
 
   const exp = lic.expires_at ? Math.min(t + PASS_MS, lic.expires_at) : t + PASS_MS;
@@ -549,6 +549,7 @@ async function ensureSchema(env) {
       version TEXT NOT NULL DEFAULT '', result TEXT NOT NULL, ai_left INTEGER, size INTEGER NOT NULL DEFAULT 0)`,
     'CREATE INDEX IF NOT EXISTS ai_calls_key ON ai_calls (key, at)',
     'CREATE INDEX IF NOT EXISTS ai_calls_dev ON ai_calls (key, device, at)',
+    'CREATE TABLE IF NOT EXISTS device_names (key TEXT NOT NULL, device TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (key, device))',
   ]) {
     try { await env.DB.prepare(sql).run(); } catch (e) { /* already there */ }
   }
@@ -579,6 +580,12 @@ async function reprice(env, key) {
   const total = quote(lic, lic.discount, await getRates(env)).total;
   await env.DB.prepare('UPDATE licences SET price = ?2 WHERE key = ?1').bind(key, total).run();
   return total;
+}
+
+// Names you give computers in the dashboard. Kept when a computer is removed, so it gets its name back if it returns.
+async function deviceLabel(env, key, device) {
+  const r = await env.DB.prepare('SELECT name FROM device_names WHERE key = ?1 AND device = ?2').bind(key, device).first();
+  return r ? `${device.slice(0, 8)} · ${r.name}` : device.slice(0, 8);
 }
 
 async function getSupport(env) {
@@ -732,7 +739,10 @@ async function quoteAction(env, b) {
 async function adminDetail(env, key) {
   const lic = await getLicence(env, key);
   if (!lic) return fail(404, 'not_found', 'No such key.');
-  const devices = (await env.DB.prepare('SELECT * FROM devices WHERE key = ?1 ORDER BY first_seen').bind(key).all()).results;
+  const devices = (await env.DB.prepare(
+    'SELECT d.*, n.name FROM devices d LEFT JOIN device_names n ON n.key = d.key AND n.device = d.device WHERE d.key = ?1 ORDER BY d.first_seen'
+  ).bind(key).all()).results;
+  const names = Object.fromEntries((await env.DB.prepare('SELECT device, name FROM device_names WHERE key = ?1').bind(key).all()).results.map((r) => [r.device, r.name]));
   const usage = (await env.DB.prepare('SELECT * FROM usage WHERE key = ?1 ORDER BY month DESC LIMIT 12').bind(key).all()).results;
   const log = (await env.DB.prepare('SELECT * FROM events WHERE key = ?1 ORDER BY at DESC LIMIT 40').bind(key).all()).results;
   // AI reads per computer (answered calls: ok or no_details), this month and in total, plus the last 50 AI calls.
@@ -744,7 +754,7 @@ async function adminDetail(env, key) {
      FROM ai_calls WHERE key = ?1 GROUP BY device ORDER BY last DESC`
   ).bind(key, monthStart).all()).results;
   const aiCalls = (await env.DB.prepare('SELECT at, device, version, result, ai_left, size FROM ai_calls WHERE key = ?1 ORDER BY at DESC, id DESC LIMIT 50').bind(key).all()).results;
-  return json({ ok: true, licence: lic, devices, usage, log, ai_by_device: aiByDevice, ai_calls: aiCalls, quote: quote(lic, lic.discount, await getRates(env)) });
+  return json({ ok: true, licence: lic, devices, names, usage, log, ai_by_device: aiByDevice, ai_calls: aiCalls, quote: quote(lic, lic.discount, await getRates(env)) });
 }
 
 async function adminAction(env, req) {
@@ -850,6 +860,7 @@ async function adminAction(env, req) {
         env.DB.prepare('DELETE FROM usage WHERE key = ?1').bind(key),
         env.DB.prepare('DELETE FROM events WHERE key = ?1').bind(key),
         env.DB.prepare('DELETE FROM ai_calls WHERE key = ?1').bind(key),
+        env.DB.prepare('DELETE FROM device_names WHERE key = ?1').bind(key),
         env.DB.prepare('DELETE FROM licences WHERE key = ?1').bind(key),
       ]);
       await addEvent(env, 'SYSTEM', 'info', 'deleted', `Key ${key}${lic.agency ? ` (${lic.agency})` : ''} deleted`);
@@ -868,11 +879,23 @@ async function adminAction(env, req) {
       await closeEvents(env, key, ['device_limit', 'device_removed']);
       await addEvent(env, key, 'info', 'devices_reset', 'All computers removed', 'They enter the key again on each computer.');
       break;
-    case 'remove_device':
+    case 'remove_device': {
+      const label = await deviceLabel(env, key, cleanText(b.device, 64));
       await run('DELETE FROM devices WHERE key = ?1 AND device = ?2', cleanText(b.device, 64));
       await closeEvents(env, key, ['device_limit', 'device_removed']);
-      await addEvent(env, key, 'info', 'device_removed_by_you', `Computer removed (${cleanText(b.device, 8)})`, 'That computer must enter the key again.');
+      await addEvent(env, key, 'info', 'device_removed_by_you', `Computer removed (${label})`, 'That computer must enter the key again.');
       break;
+    }
+    case 'name_device': {
+      const device = cleanText(b.device, 64);
+      const name = cleanText(b.name, 40);
+      const known = await env.DB.prepare('SELECT 1 FROM devices WHERE key = ?1 AND device = ?2').bind(key, device).first();
+      if (!known) return fail(404, 'not_found', 'That computer is not on this licence.');
+      if (name) await run('INSERT INTO device_names (key, device, name) VALUES (?1, ?2, ?3) ON CONFLICT (key, device) DO UPDATE SET name = ?3', device, name);
+      else await run('DELETE FROM device_names WHERE key = ?1 AND device = ?2', device);
+      await addEvent(env, key, 'info', 'device_named', name ? `Computer ${device.slice(0, 8)} named "${name}"` : `Name removed from computer ${device.slice(0, 8)}`);
+      break;
+    }
     case 'add_ai': {
       const n = intOr(b.amount, 100);
       if (n < 1 || n > 100000) return fail(400, 'bad_amount', 'Amount must be between 1 and 100000.');

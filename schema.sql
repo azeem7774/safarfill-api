@@ -77,6 +77,14 @@ CREATE TABLE IF NOT EXISTS ai_calls (
 CREATE INDEX IF NOT EXISTS ai_calls_key ON ai_calls (key, at);
 CREATE INDEX IF NOT EXISTS ai_calls_dev ON ai_calls (key, device, at);
 
+-- Names given to computers in the dashboard (kept when a computer is removed).
+CREATE TABLE IF NOT EXISTS device_names (
+  key    TEXT NOT NULL,
+  device TEXT NOT NULL,
+  name   TEXT NOT NULL,
+  PRIMARY KEY (key, device)
+);
+
 CREATE TABLE IF NOT EXISTS rate (
   key    TEXT NOT NULL,
   kind   TEXT NOT NULL,                   -- parse | ai

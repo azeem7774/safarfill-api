@@ -1,4 +1,4 @@
-# SafarFill licence server — API for the extension (v1.7.0)
+# SafarFill licence server — API for the extension (v1.8.0)
 
 Base URL: `https://safarfill-api.azeemhfd.workers.dev`
 Worker name `safarfill-api`, D1 database `safarfill` (binding `DB`). Separate from `fq-relay`: no shared code, database or secrets.
@@ -88,4 +88,5 @@ Send the extension's version in `/v1/session` (`"version": "1.1.0"`). If you set
 - **AI reads per computer** on each licence: AI reads this month and in total (answered calls: ok or no_details), all AI calls, last call; plus the **last 50 AI calls** with time, computer, version, result, AI left and image size.
 - **Needs your attention** also shows a computer with **more than 30 AI calls in one hour** (`ai_burst`), or **more than 5 refused AI calls (quota / not in plan) in one hour** (`ai_refused_burst`). Each is raised at most once per hour per licence.
 - Delete key also removes that key's AI call log.
+- **Computer names (v1.8.0)**: in a licence's Computers list, type a name for each computer (e.g. "Front desk", "Win7 PC") and press Save. Names show in the computer, AI-per-computer and AI-call lists and in the history ("Computer added (KeGhUhm8 · Front desk)"). A name is kept when a computer is removed, so it comes back if that computer enters the key again. Empty name = remove it. Nothing changes for the extension.
 

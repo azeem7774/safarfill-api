@@ -301,11 +301,15 @@
     $('addAi').hidden = l.plan === 'trial' || l.ai_quota < 0;
     $('block').hidden = l.status === 'blocked';
     $('unblock').hidden = l.status !== 'blocked';
-    $('dDevices').innerHTML = j.devices.map((d) => `<tr><td class="mono">${esc(d.device.slice(0, 8))}…</td><td>${esc(d.version)}</td><td>${ago(d.last_seen)}</td><td><button class="small danger" data-dev="${esc(d.device)}">Remove</button></td></tr>`).join('') || '<tr><td colspan="4" class="muted">Not used on any computer yet.</td></tr>';
+    const names = j.names || {};
+    const pc = (dev) => `<span class="mono">${esc(dev.slice(0, 8))}</span>${names[dev] ? ` <b>${esc(names[dev])}</b>` : ''}`;
+    $('dDevices').innerHTML = j.devices.map((d) => `<tr><td class="mono">${esc(d.device.slice(0, 8))}…</td>
+      <td><div class="row" style="flex-wrap:nowrap;gap:4px"><input class="devname" data-name-for="${esc(d.device)}" value="${esc(d.name || '')}" maxlength="40" placeholder="e.g. Front desk" style="min-width:110px;padding:4px 6px"><button class="small" data-save-name="${esc(d.device)}">Save</button></div></td>
+      <td>${esc(d.version)}</td><td>${ago(d.last_seen)}</td><td><button class="small danger" data-dev="${esc(d.device)}">Remove</button></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Not used on any computer yet.</td></tr>';
     $('dUsage').innerHTML = j.usage.map((u) => `<tr><td>${esc(u.month)}</td><td>${u.parse_count}</td><td>${u.fill_count || 0}</td><td>${u.ai_count}</td><td>${(u.ai_cost_usd * USD_TO_SAR).toFixed(2)} SAR</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No use yet.</td></tr>';
     const resultPill = (r) => `<span class="pill ${r === 'ok' ? 'p-ok' : r === 'no_details' ? 'p-muted' : r === 'quota' || r === 'ai_not_in_plan' ? 'p-warn' : 'p-bad'}">${esc(r)}</span>`;
-    $('dAiDev').innerHTML = (j.ai_by_device || []).map((d) => `<tr><td class="mono">${esc(d.device.slice(0, 8))}…</td><td>${d.month || 0}</td><td>${d.total || 0}</td><td>${d.calls}</td><td>${ago(d.last)}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No AI calls yet.</td></tr>';
-    $('dAiCalls').innerHTML = (j.ai_calls || []).map((c) => `<tr><td class="muted small">${fmtTime(c.at)}</td><td class="mono">${esc(c.device.slice(0, 8))}…</td><td>${esc(c.version)}</td><td>${resultPill(c.result)}</td><td>${c.ai_left == null ? '—' : c.ai_left}</td><td>${c.size ? `${Math.round(c.size / 1024)} KB` : '—'}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No AI calls yet.</td></tr>';
+    $('dAiDev').innerHTML = (j.ai_by_device || []).map((d) => `<tr><td>${pc(d.device)}</td><td>${d.month || 0}</td><td>${d.total || 0}</td><td>${d.calls}</td><td>${ago(d.last)}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No AI calls yet.</td></tr>';
+    $('dAiCalls').innerHTML = (j.ai_calls || []).map((c) => `<tr><td class="muted small">${fmtTime(c.at)}</td><td>${pc(c.device)}</td><td>${esc(c.version)}</td><td>${resultPill(c.result)}</td><td>${c.ai_left == null ? '—' : c.ai_left}</td><td>${c.size ? `${Math.round(c.size / 1024)} KB` : '—'}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No AI calls yet.</td></tr>';
     $('dLog').innerHTML = j.log.map((e) => `<tr><td class="muted small">${fmtTime(e.at)}</td><td class="wrap">${esc(e.what)}</td></tr>`).join('');
     if (data) render();
   }
@@ -461,8 +465,15 @@
   }));
   $('reset').addEventListener('click', () => askConfirm('Remove all computers from this licence? Each computer must enter the key again.', () => act(current.key, 'reset_devices')));
   $('dDevices').addEventListener('click', (e) => {
+    const sv = e.target.closest('button[data-save-name]');
+    if (sv) {
+      const dev = sv.dataset.saveName;
+      const input = [...$('dDevices').querySelectorAll('input[data-name-for]')].find((i) => i.dataset.nameFor === dev);
+      run(() => act(current.key, 'name_device', { device: dev, name: input ? input.value.trim() : '' }))();
+      return;
+    }
     const b = e.target.closest('button[data-dev]');
-    if (b) askConfirm('Remove this computer? It must enter the key again.', () => act(current.key, 'remove_device', { device: b.dataset.dev }));
+    if (b) askConfirm(`Remove computer ${b.dataset.dev.slice(0, 8)}${(current && b.closest('tr').querySelector('input[data-name-for]').value) ? ` (${b.closest('tr').querySelector('input[data-name-for]').value})` : ''}? It must enter the key again.`, () => act(current.key, 'remove_device', { device: b.dataset.dev }));
   });
 
   if (adminKey) load().catch(() => signOut());

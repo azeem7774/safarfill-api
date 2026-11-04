@@ -209,4 +209,18 @@ ok(al.open.some((e) => e.code === 'ai_refused_burst' && e.key === rk2.j.key), 'r
 const rd = (await get('/admin/api/licence?key=' + rk2.j.key, A)).j;
 ok(rd.ai_calls.length === 6 && rd.ai_calls.every((c) => c.result === 'ai_not_in_plan') && rd.ai_by_device[0].total === 0, 'refused calls logged, not counted as reads');
 await post('/admin/api/action', { key: ak.j.key, action: 'delete_licence' }, A);
+// computer names
+const nk = await post('/admin/api/licences', { plan: 'owner', agency: 'Name Co' }, A);
+await post('/v1/session', { key: nk.j.key, device: 'dev-name-00001', version: '1.1.3' });
+let nd = (await post('/admin/api/action', { key: nk.j.key, action: 'name_device', device: 'dev-name-00001', name: 'Front desk' }, A)).j;
+ok(nd.devices[0].name === 'Front desk' && nd.names['dev-name-00001'] === 'Front desk', 'computer named');
+ok((await post('/admin/api/action', { key: nk.j.key, action: 'name_device', device: 'nope-000000', name: 'X' }, A)).s === 404, 'unknown computer refused');
+nd = (await post('/admin/api/action', { key: nk.j.key, action: 'remove_device', device: 'dev-name-00001' }, A)).j;
+ok(nd.log.some((e) => e.what.includes('dev-name · Front desk')), 'removal shows name');
+await post('/v1/session', { key: nk.j.key, device: 'dev-name-00001', version: '1.1.3' });
+nd = (await get('/admin/api/licence?key=' + nk.j.key, A)).j;
+ok(nd.devices[0].name === 'Front desk' && nd.log.some((e) => e.what === 'Computer added (dev-name · Front desk)'), 'name kept when computer returns');
+nd = (await post('/admin/api/action', { key: nk.j.key, action: 'name_device', device: 'dev-name-00001', name: '' }, A)).j;
+ok(!nd.devices[0].name, 'name cleared');
+await post('/admin/api/action', { key: nk.j.key, action: 'delete_licence' }, A);
 console.log(`passed ${pass}, failed ${failN}`);
