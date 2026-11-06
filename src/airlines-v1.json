@@ -1,0 +1,415 @@
+{
+ "schema": 1,
+ "airlines": [
+  {
+   "id": "pia",
+   "name": "Pakistan International Airlines (PIA)",
+   "rule": "father-first",
+   "names": [
+    "PAKISTAN INTERNATIONAL",
+    "PIA"
+   ],
+   "codes": [
+    "PK"
+   ]
+  },
+  {
+   "id": "airblue",
+   "name": "Air Blue",
+   "rule": "father-last",
+   "names": [
+    "AIRBLUE",
+    "AIR BLUE"
+   ],
+   "codes": [
+    "PA"
+   ]
+  },
+  {
+   "id": "serene",
+   "name": "Serene Air",
+   "rule": "father-last",
+   "names": [
+    "SERENE AIR",
+    "SERENE"
+   ],
+   "codes": [
+    "ER"
+   ]
+  },
+  {
+   "id": "spicejet",
+   "name": "SpiceJet",
+   "rule": "split-or-repeat",
+   "names": [
+    "SPICEJET",
+    "SPICE JET"
+   ],
+   "codes": [
+    "SG"
+   ]
+  },
+  {
+   "id": "indigo",
+   "name": "IndiGo",
+   "rule": "split-or-repeat",
+   "names": [
+    "INDIGO"
+   ],
+   "codes": [
+    "6E"
+   ]
+  },
+  {
+   "id": "wizz",
+   "name": "Wizz Air",
+   "rule": "repeat",
+   "names": [
+    "WIZZ AIR",
+    "WIZZAIR",
+    "WIZZ"
+   ],
+   "codes": [
+    "W6",
+    "W4",
+    "5W"
+   ]
+  },
+  {
+   "id": "flyjinnah",
+   "name": "Fly Jinnah",
+   "rule": "father-last",
+   "names": [
+    "FLY JINNAH",
+    "FLYJINNAH"
+   ],
+   "codes": [
+    "9P"
+   ]
+  },
+  {
+   "id": "airarabia",
+   "name": "Air Arabia",
+   "rule": "father-last",
+   "names": [
+    "AIR ARABIA",
+    "AIRARABIA"
+   ],
+   "codes": [
+    "G9",
+    "3O",
+    "E5",
+    "3L"
+   ]
+  },
+  {
+   "id": "flydubai",
+   "name": "flydubai",
+   "rule": "father-last",
+   "names": [
+    "FLYDUBAI",
+    "FLY DUBAI"
+   ],
+   "codes": [
+    "FZ"
+   ]
+  },
+  {
+   "id": "srilankan",
+   "name": "SriLankan Airlines",
+   "rule": "split-or-name-title",
+   "names": [
+    "SRILANKAN",
+    "SRI LANKAN"
+   ],
+   "codes": [
+    "UL"
+   ]
+  },
+  {
+   "id": "emirates",
+   "name": "Emirates (and NDC)",
+   "rule": "fnu",
+   "names": [
+    "EMIRATES"
+   ],
+   "codes": [
+    "EK"
+   ]
+  },
+  {
+   "id": "etihad",
+   "name": "Etihad",
+   "rule": "fnu",
+   "names": [
+    "ETIHAD"
+   ],
+   "codes": [
+    "EY"
+   ]
+  },
+  {
+   "id": "uganda",
+   "name": "Uganda Airlines",
+   "rule": "title-name",
+   "names": [
+    "UGANDA AIRLINES",
+    "UGANDA AIR"
+   ],
+   "codes": [
+    "UR"
+   ]
+  },
+  {
+   "id": "cebu",
+   "name": "Cebu Pacific",
+   "rule": "fnu",
+   "names": [
+    "CEBU PACIFIC",
+    "CEBU"
+   ],
+   "codes": [
+    "5J"
+   ]
+  },
+  {
+   "id": "biman",
+   "name": "Biman Bangladesh",
+   "rule": "father-missing",
+   "names": [
+    "BIMAN"
+   ],
+   "codes": [
+    "BG"
+   ]
+  },
+  {
+   "id": "usbangla",
+   "name": "US-Bangla",
+   "rule": "repeat",
+   "names": [
+    "US-BANGLA",
+    "US BANGLA",
+    "USBANGLA"
+   ],
+   "codes": [
+    "BS"
+   ]
+  },
+  {
+   "id": "turkish",
+   "name": "Turkish Airlines",
+   "rule": "title-name",
+   "names": [
+    "TURKISH AIRLINES",
+    "TURKISH"
+   ],
+   "codes": [
+    "TK"
+   ]
+  },
+  {
+   "id": "kenya",
+   "name": "Kenya Airways",
+   "rule": "title-name",
+   "names": [
+    "KENYA AIRWAYS",
+    "KENYA AIR"
+   ],
+   "codes": [
+    "KQ"
+   ]
+  },
+  {
+   "id": "flynas",
+   "name": "flynas",
+   "rule": "split-or-father",
+   "names": [
+    "FLYNAS",
+    "FLY NAS"
+   ],
+   "codes": [
+    "XY"
+   ]
+  },
+  {
+   "id": "saudia",
+   "name": "Saudia (Saudi Airlines)",
+   "rule": "fnu",
+   "names": [
+    "SAUDIA",
+    "SAUDI ARABIAN AIRLINES",
+    "SAUDI AIRLINES"
+   ],
+   "codes": [
+    "SV"
+   ]
+  },
+  {
+   "id": "fitsair",
+   "name": "Fits Air",
+   "rule": "title-name",
+   "names": [
+    "FITS AIR",
+    "FITSAIR"
+   ],
+   "codes": [
+    "8D"
+   ]
+  },
+  {
+   "id": "kamair",
+   "name": "Kam Air",
+   "rule": "repeat",
+   "names": [
+    "KAM AIR",
+    "KAMAIR"
+   ],
+   "codes": [
+    "RQ"
+   ]
+  },
+  {
+   "id": "gulfair",
+   "name": "Gulf Air",
+   "rule": "split-or-title-name",
+   "names": [
+    "GULF AIR",
+    "GULFAIR"
+   ],
+   "codes": [
+    "GF"
+   ]
+  },
+  {
+   "id": "qatar",
+   "name": "Qatar Airways",
+   "rule": "qatar",
+   "names": [
+    "QATAR AIRWAYS",
+    "QATAR AIR"
+   ],
+   "codes": [
+    "QR"
+   ]
+  },
+  {
+   "id": "chinasouthern",
+   "name": "China Southern",
+   "rule": "title-name",
+   "names": [
+    "CHINA SOUTHERN"
+   ],
+   "codes": [
+    "CZ"
+   ]
+  },
+  {
+   "id": "aix",
+   "name": "Air India Express",
+   "rule": "halves-or-repeat",
+   "names": [
+    "AIR INDIA EXPRESS",
+    "AIRINDIA EXPRESS",
+    "AIX CONNECT"
+   ],
+   "codes": [
+    "IX",
+    "I5"
+   ]
+  },
+  {
+   "id": "airindia",
+   "name": "Air India",
+   "rule": "split-or-repeat",
+   "names": [
+    "AIR INDIA",
+    "AIRINDIA"
+   ],
+   "codes": [
+    "AI"
+   ]
+  },
+  {
+   "id": "vistara",
+   "name": "Vistara",
+   "rule": "split-or-repeat",
+   "names": [
+    "VISTARA"
+   ],
+   "codes": [
+    "UK"
+   ]
+  },
+  {
+   "id": "omanair",
+   "name": "Oman Air (and NDC)",
+   "rule": "split-or-repeat",
+   "names": [
+    "OMAN AIR",
+    "OMANAIR"
+   ],
+   "codes": [
+    "WY"
+   ]
+  },
+  {
+   "id": "salamair",
+   "name": "SalamAir",
+   "rule": "father-last",
+   "names": [
+    "SALAMAIR",
+    "SALAM AIR"
+   ],
+   "codes": [
+    "OV"
+   ]
+  },
+  {
+   "id": "jazeera",
+   "name": "Jazeera Airways",
+   "rule": "name-title",
+   "names": [
+    "JAZEERA"
+   ],
+   "codes": [
+    "J9"
+   ]
+  },
+  {
+   "id": "flyadeal",
+   "name": "flyadeal",
+   "rule": "split-or-repeat",
+   "names": [
+    "FLYADEAL",
+    "FLY ADEAL"
+   ],
+   "codes": [
+    "F3"
+   ]
+  },
+  {
+   "id": "akasa",
+   "name": "Akasa Air",
+   "rule": "repeat",
+   "names": [
+    "AKASA"
+   ],
+   "codes": [
+    "QP"
+   ]
+  },
+  {
+   "id": "airsial",
+   "name": "Air Sial",
+   "rule": "split-or-father",
+   "names": [
+    "AIRSIAL",
+    "AIR SIAL"
+   ],
+   "codes": [
+    "PF"
+   ]
+  }
+ ]
+}

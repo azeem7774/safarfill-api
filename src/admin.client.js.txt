@@ -46,6 +46,19 @@
     adminKey = '';
     try { sessionStorage.removeItem('sfAdmin'); } catch (e) { /* ignore */ }
     $('app').hidden = true; $('login').hidden = false; $('logout').hidden = true; $('refreshTop').hidden = true; $('who').textContent = '';
+    $('tabs').hidden = true; $('rulesView').hidden = true; $('portalsView').hidden = true;
+  }
+
+  // ---------- tabs
+  let tab = 'app';
+  try { tab = sessionStorage.getItem('sfTab') || 'app'; } catch (e) { /* ignore */ }
+  function showTab(t) {
+    tab = t;
+    try { sessionStorage.setItem('sfTab', t); } catch (e) { /* ignore */ }
+    for (const id of ['app', 'rulesView', 'portalsView']) $(id).hidden = id !== t;
+    for (const b of document.querySelectorAll('nav#tabs .tab')) b.classList.toggle('on', b.dataset.tab === t);
+    if (t === 'rulesView') loadRules().catch((e) => toast(e.message));
+    if (t === 'portalsView') drawPortalsView();
   }
 
   // ---------- licence helpers
@@ -105,6 +118,9 @@
   // ---------- needs your attention
   function attentionItems() {
     const items = [];
+    for (const [p, st] of Object.entries(data.portal_status || {})) {
+      if (!st.on) items.push({ lvl: 'bad', title: `${NAMES[p] || p} filling is paused for everyone`, text: `Agents see: ${st.message}`, acts: [['Switch on', () => setPortal(p, true)], ['Portals', () => showTab('portalsView')]] });
+    }
     for (const e of data.open) {
       const who = e.agency || 'Unknown agency';
       if (e.code === 'ai_unavailable') {
@@ -119,6 +135,12 @@
         items.push({ lvl: 'warn', title: `${who}: unusually many AI reads`, text: `${e.what}. Check the AI calls on this licence: a shared key or a loop.`, acts: [['Open', () => openDetail(e.key)], ['Dismiss', () => dismiss(e.id)]] });
       } else if (e.code === 'ai_refused_burst') {
         items.push({ lvl: 'warn', title: `${who}: AI keeps being refused`, text: `${e.what}. They may need more AI reads or AI in their plan.`, acts: [['+100 AI reads', () => act(e.key, 'add_ai', { amount: 100 })], ['Open', () => openDetail(e.key)], ['Dismiss', () => dismiss(e.id)]] });
+      } else if (e.code === 'geo_country') {
+        items.push({ lvl: 'warn', title: `${who}: used from two countries today`, text: `${e.what} Open the licence and look at Activity.`, acts: [['Open', () => openDetail(e.key)], ['Dismiss', () => dismiss(e.id)]] });
+      } else if (e.code === 'geo_city') {
+        items.push({ lvl: 'info', title: `${who}: used from two cities today`, text: e.what, acts: [['Open', () => openDetail(e.key)], ['Dismiss', () => dismiss(e.id)]] });
+      } else if (e.code === 'ip_many') {
+        items.push({ lvl: 'warn', title: `${who}: one computer, many internet addresses`, text: `${e.what} It may be shared or behind a changing connection.`, acts: [['Open', () => openDetail(e.key)], ['Dismiss', () => dismiss(e.id)]] });
       } else if (e.code === 'device_removed') {
         items.push({ lvl: 'warn', title: `${who}: a removed computer is still trying`, text: 'If this is wrong, open the licence and allow the computer again.', acts: [['Open', () => openDetail(e.key)], ['Dismiss', () => dismiss(e.id)]] });
       }
@@ -204,10 +226,13 @@
 
   async function load() {
     data = await api('/admin/api/licences');
-    $('app').hidden = false; $('login').hidden = true; $('logout').hidden = false; $('refreshTop').hidden = false;
+    $('login').hidden = true; $('logout').hidden = false; $('refreshTop').hidden = false; $('tabs').hidden = false;
+    for (const id of ['app', 'rulesView', 'portalsView']) $(id).hidden = id !== tab;
+    for (const b of document.querySelectorAll('nav#tabs .tab')) b.classList.toggle('on', b.dataset.tab === tab);
     $('who').textContent = `Month ${data.month}`;
     if (!$('cPortals').children.length) planDefaults();
     render();
+    if (tab === 'portalsView') drawPortalsView();
   }
 
   // ---------- quotes
@@ -303,9 +328,17 @@
     $('unblock').hidden = l.status !== 'blocked';
     const names = j.names || {};
     const pc = (dev) => `<span class="mono">${esc(dev.slice(0, 8))}</span>${names[dev] ? ` <b>${esc(names[dev])}</b>` : ''}`;
+    const place = Object.fromEntries((j.places || []).map((p) => [p.device, p]));
+    const where = (p) => (p ? [p.city, p.country].filter(Boolean).join(', ') : '');
     $('dDevices').innerHTML = j.devices.map((d) => `<tr><td class="mono">${esc(d.device.slice(0, 8))}…</td>
       <td><div class="row" style="flex-wrap:nowrap;gap:4px"><input class="devname" data-name-for="${esc(d.device)}" value="${esc(d.name || '')}" maxlength="40" placeholder="e.g. Front desk" style="min-width:110px;padding:4px 6px"><button class="small" data-save-name="${esc(d.device)}">Save</button></div></td>
-      <td>${esc(d.version)}</td><td>${ago(d.last_seen)}</td><td><button class="small danger" data-dev="${esc(d.device)}">Remove</button></td></tr>`).join('') || '<tr><td colspan="5" class="muted">Not used on any computer yet.</td></tr>';
+      <td>${esc(d.version)}</td><td>${ago(d.last_seen)}</td><td class="small">${place[d.device] ? `${esc(place[d.device].ip)}<br><span class="muted">${esc(where(place[d.device]))}</span>` : '<span class="muted">—</span>'}</td><td><button class="small danger" data-dev="${esc(d.device)}">Remove</button></td></tr>`).join('') || '<tr><td colspan="6" class="muted">Not used on any computer yet.</td></tr>';
+    const actPill = (a) => {
+      const cls = a.action === 'refused' ? 'p-bad' : a.action === 'ai' ? (a.detail === 'ok' ? 'p-ok' : 'p-warn') : 'p-muted';
+      return `<span class="pill ${cls}">${esc(a.action)}</span>${a.detail ? ` <span class="small">${esc(a.detail)}</span>` : ''}`;
+    };
+    $('dActs').innerHTML = (j.actions || []).map((a) => `<tr><td class="muted small">${fmtTime(a.at)}</td><td>${a.device ? pc(a.device) : '<span class="muted">—</span>'}</td><td>${actPill(a)}</td><td>${esc(a.version || '')}</td><td class="small mono">${esc(a.ip || '')}</td><td class="small">${esc(where(a))}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No activity yet.</td></tr>';
+    $('eTester').checked = !!l.rules_tester;
     $('dUsage').innerHTML = j.usage.map((u) => `<tr><td>${esc(u.month)}</td><td>${u.parse_count}</td><td>${u.fill_count || 0}</td><td>${u.ai_count}</td><td>${(u.ai_cost_usd * USD_TO_SAR).toFixed(2)} SAR</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No use yet.</td></tr>';
     const resultPill = (r) => `<span class="pill ${r === 'ok' ? 'p-ok' : r === 'no_details' ? 'p-muted' : r === 'quota' || r === 'ai_not_in_plan' ? 'p-warn' : 'p-bad'}">${esc(r)}</span>`;
     $('dAiDev').innerHTML = (j.ai_by_device || []).map((d) => `<tr><td>${pc(d.device)}</td><td>${d.month || 0}</td><td>${d.total || 0}</td><td>${d.calls}</td><td>${ago(d.last)}</td></tr>`).join('') || '<tr><td colspan="5" class="muted">No AI calls yet.</td></tr>';
@@ -475,6 +508,176 @@
     const b = e.target.closest('button[data-dev]');
     if (b) askConfirm(`Remove computer ${b.dataset.dev.slice(0, 8)}${(current && b.closest('tr').querySelector('input[data-name-for]').value) ? ` (${b.closest('tr').querySelector('input[data-name-for]').value})` : ''}? It must enter the key again.`, () => act(current.key, 'remove_device', { device: b.dataset.dev }));
   });
+
+  $('eTester').addEventListener('change', run(() => act(current.key, 'set_rules_tester', { on: $('eTester').checked })));
+  for (const b of document.querySelectorAll('nav#tabs .tab')) b.addEventListener('click', () => showTab(b.dataset.tab));
+
+  // ---------- portals & messages
+  async function setPortal(p, on, message) {
+    await api('/admin/api/action', { action: 'set_portal', portal: p, on, message });
+    await load();
+    toast(on ? `${NAMES[p]} filling is on.` : `${NAMES[p]} filling is paused.`);
+  }
+  function drawPortalsView() {
+    if (!data) return;
+    const st = data.portal_status || {};
+    $('portalRows').innerHTML = Object.keys(NAMES).map((p) => {
+      const s = st[p] || { on: true };
+      return `<div class="pswitch"><b>${NAMES[p]}</b>
+        <span class="pill ${s.on ? 'p-ok' : 'p-bad'}">${s.on ? 'On' : 'Paused'}</span>
+        <input data-pmsg="${p}" maxlength="300" value="${esc(s.on ? '' : s.message)}" placeholder="${esc(`${NAMES[p]} filling is paused for an update. Fill by hand for now.`)}">
+        <span class="row" style="gap:6px;flex-wrap:nowrap">${s.on ? `<button class="small danger" data-pause="${p}">Pause</button>` : `<button class="small" data-pause="${p}">Update message</button><button class="small primary" data-resume="${p}">Switch on</button>`}</span></div>`;
+    }).join('');
+    const now_ = data.now;
+    $('anList').innerHTML = (data.announcements || []).map((a) => {
+      const who = a.target_type === 'all' ? 'Everyone' : a.target_type === 'plan' ? `Plan: ${a.target}` : `Licence: ${a.target}`;
+      const ended = a.until && a.until < now_;
+      return `<div class="ann lvl-${esc(a.level)}"><div><div>${esc(a.text)}</div><div class="small muted">${esc(a.level)} · ${esc(who)} · ${fmtTime(a.created_at)}${a.until ? ` · until ${fmtDate(a.until)}` : ''}${ended ? ' · <b>ended</b>' : ''}${a.link ? ` · ${esc(a.link)}` : ''}</div></div>
+        <button class="small danger" data-delann="${a.id}">Delete</button></div>`;
+    }).join('') || '<p class="muted">No messages.</p>';
+  }
+  $('portalRows').addEventListener('click', (e) => {
+    const pz = e.target.closest('button[data-pause]');
+    const rs = e.target.closest('button[data-resume]');
+    if (pz) {
+      const p = pz.dataset.pause;
+      const msg = $('portalRows').querySelector(`input[data-pmsg="${p}"]`).value.trim();
+      const isOn = (data.portal_status[p] || {}).on;
+      if (isOn) askConfirmIn('portalRows', `Pause ${NAMES[p]} filling for every agency?`, () => setPortal(p, false, msg));
+      else run(() => setPortal(p, false, msg))();
+    }
+    if (rs) run(() => setPortal(rs.dataset.resume, true))();
+  });
+  function askConfirmIn(afterId, text, yes) {
+    let box = document.getElementById('confirmPortal');
+    if (!box) { box = document.createElement('div'); box.id = 'confirmPortal'; $(afterId).after(box); }
+    box.innerHTML = `<div class="confirm"><div>${esc(text)}</div><div class="row" style="margin-top:8px"><button id="cpYes" class="small danger">Yes</button><button id="cpNo" class="small">Cancel</button></div></div>`;
+    $('cpYes').addEventListener('click', () => { box.innerHTML = ''; Promise.resolve(yes()).catch((e) => toast(e.message)); });
+    $('cpNo').addEventListener('click', () => { box.innerHTML = ''; });
+  }
+  $('anText').addEventListener('input', () => { $('anCount').textContent = $('anText').value.length; });
+  $('anType').addEventListener('change', () => { $('anPlanBox').hidden = $('anType').value !== 'plan'; $('anKeyBox').hidden = $('anType').value !== 'licence'; });
+  $('anAdd').addEventListener('click', run(async () => {
+    const type = $('anType').value;
+    await api('/admin/api/action', { action: 'add_announcement', text: $('anText').value, level: $('anLevel').value, link: $('anLink').value.trim(),
+      until: $('anUntil').value, target_type: type, target: type === 'plan' ? $('anPlan').value : type === 'licence' ? $('anKey').value.trim() : '' });
+    $('anText').value = ''; $('anLink').value = ''; $('anUntil').value = ''; $('anCount').textContent = '0';
+    await load();
+    drawPortalsView();
+    toast('Message sent.');
+  }));
+  $('anList').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-delann]');
+    if (b) run(async () => { await api('/admin/api/action', { action: 'delete_announcement', id: +b.dataset.delann }); await load(); drawPortalsView(); toast('Message deleted.'); })();
+  });
+
+  // ---------- rules
+  let rules = null;
+  let ruleOpen = null;
+  const PORTAL_IDS = Object.keys(NAMES);
+  async function loadRules() {
+    rules = await api('/admin/api/rules');
+    const testerN = rules.testers.length;
+    $('rulesInfo').innerHTML = `Everyone gets <b>v${rules.live == null ? '—' : rules.live}</b>. Rules testers (${testerN}${testerN ? `: ${rules.testers.map((t) => esc(t.agency || t.key)).join(', ')}` : ''}) get <b>v${rules.testers_get == null ? '—' : rules.testers_get}</b>. Mark a licence as tester in its detail panel.`;
+    const pill = (s) => `<span class="pill ${s === 'released' ? 'p-ok' : s === 'test' ? 'p-test' : s === 'draft' ? 'p-warn' : 'p-muted'}">${s}</span>`;
+    $('rulesList').innerHTML = rules.versions.map((v) => `<tr class="click" data-rule="${v.id}"><td><b>v${v.id}</b>${v.id === rules.live ? ' <span class="small muted">live</span>' : ''}</td><td>${pill(v.status)}</td><td class="wrap">${esc(v.note)}</td>
+      <td>${v.airlines}</td><td>${v.messages}</td><td>${v.portals.map((p) => esc(NAMES[p] || p)).join(', ') || '<span class="muted">none</span>'}</td><td class="small muted">${fmtTime(v.created_at)}</td><td><button class="small">Open</button></td></tr>`).join('');
+    $('keyState').innerHTML = rules.key_set
+      ? (rules.public_key ? 'RULES_PRIVATE_KEY is set. The server signs every rules download.' : '<b style="color:var(--bad)">RULES_PRIVATE_KEY is set but is not a valid P-256 private key (JWK).</b>')
+      : '<b style="color:var(--bad)">RULES_PRIVATE_KEY is not set.</b> /v1/rules answers "not set up" until you add it. Make a key pair below.';
+    $('pubKey').value = rules.public_key ? JSON.stringify(rules.public_key) : '';
+  }
+  $('rulesList').addEventListener('click', (e) => {
+    const tr = e.target.closest('tr[data-rule]');
+    if (tr) openRule(+tr.dataset.rule).catch((err) => toast(err.message));
+  });
+  const pretty = (v) => JSON.stringify(v, null, 2);
+  async function openRule(id) {
+    const j = await api(`/admin/api/rules?id=${id}`);
+    ruleOpen = j.rules;
+    const r = ruleOpen;
+    const draft = r.status === 'draft';
+    $('rulesEdit').hidden = false;
+    $('reMsg').innerHTML = ''; $('reConfirm').innerHTML = '';
+    $('reTitle').innerHTML = `Rules v${r.id} · ${esc(r.status)}${r.id === rules.live ? ' · live for everyone' : ''}`;
+    $('reHelp').textContent = draft ? 'Edit, press Check, then Save draft. Send to testers first, then Release to all.'
+      : r.status === 'test' ? 'In test: rules testers get this version. Release it to all, or make a new version from it to change it.'
+        : 'Read-only. To change it, make a new version from it. Roll back brings these rules back as a new, higher version.';
+    $('reNote').value = r.note || '';
+    $('reAirlines').value = pretty(r.body.airlines || []);
+    $('reMessages').value = pretty(r.body.messages || {});
+    for (const p of PORTAL_IDS) $(`reP_${p}`).value = r.body.portals && r.body.portals[p] !== undefined ? pretty(r.body.portals[p]) : '';
+    for (const id2 of ['reNote', 'reAirlines', 'reMessages', ...PORTAL_IDS.map((p) => `reP_${p}`)]) $(id2).readOnly = !draft;
+    $('reSave').hidden = !draft; $('reDelete').hidden = !draft;
+    $('reTest').hidden = !['draft'].includes(r.status);
+    $('reRelease').hidden = !['draft', 'test'].includes(r.status);
+    $('reRollback').hidden = !(r.status === 'retired' || (r.status === 'released' && r.id !== rules.live));
+    $('rulesEdit').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  // Builds the bundle from the editors. Returns { body } or { errors }.
+  function readEditors() {
+    const errors = [];
+    const parse = (id, label) => {
+      const t = $(id).value.trim();
+      if (!t) return undefined;
+      try { return JSON.parse(t); } catch (e) { errors.push(`${label}: not valid JSON (${e.message})`); return undefined; }
+    };
+    const body = { schema: 1, airlines: parse('reAirlines', 'Airlines') || [], messages: parse('reMessages', 'Messages') || {}, portals: {} };
+    for (const p of PORTAL_IDS) { const v = parse(`reP_${p}`, NAMES[p]); if (v !== undefined) body.portals[p] = v; }
+    return errors.length ? { errors } : { body };
+  }
+  const showErrs = (errs) => { $('reMsg').innerHTML = `<ul class="errs">${errs.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>`; };
+  const showOk = (t) => { $('reMsg').innerHTML = `<div class="okmsg">${esc(t)}</div>`; };
+  async function rulesCall(body) {
+    const res = await fetch('/admin/api/rules', { method: 'POST', headers: { authorization: `Bearer ${adminKey}`, 'content-type': 'application/json' }, body: JSON.stringify(body) });
+    const j = await res.json().catch(() => ({ ok: false, message: `Server error ${res.status}` }));
+    if (res.status === 401) { signOut(); throw new Error('Wrong admin password.'); }
+    return j;
+  }
+  $('reClose').addEventListener('click', () => { $('rulesEdit').hidden = true; ruleOpen = null; });
+  $('reCheck').addEventListener('click', run(async () => {
+    const e = readEditors();
+    if (e.errors) return showErrs(e.errors);
+    const j = await rulesCall({ action: 'check', body: e.body });
+    if (j.ok) showOk('No problems found.'); else showErrs(j.errors || [j.message]);
+  }));
+  $('reSave').addEventListener('click', run(async () => {
+    const e = readEditors();
+    if (e.errors) return showErrs(e.errors);
+    const j = await rulesCall({ action: 'save', id: ruleOpen.id, body: e.body, note: $('reNote').value });
+    if (!j.ok) return showErrs(j.errors || [j.message]);
+    await loadRules(); await openRule(ruleOpen.id); showOk('Draft saved.');
+  }));
+  const confirmRule = (text, fn) => {
+    $('reConfirm').innerHTML = `<div class="confirm"><div>${esc(text)}</div><div class="row" style="margin-top:8px"><button id="rcYes" class="small danger">Yes</button><button id="rcNo" class="small">Cancel</button></div></div>`;
+    $('rcYes').addEventListener('click', () => { $('reConfirm').innerHTML = ''; run(fn)(); });
+    $('rcNo').addEventListener('click', () => { $('reConfirm').innerHTML = ''; });
+  };
+  const ruleStep = (action, done) => async () => {
+    const j = await rulesCall({ action, id: ruleOpen.id });
+    if (!j.ok) return showErrs(j.errors || [j.message]);
+    await loadRules();
+    if (j.id) await openRule(j.id); else { $('rulesEdit').hidden = true; ruleOpen = null; }
+    toast(done(j));
+  };
+  $('reTest').addEventListener('click', () => confirmRule(`Send v${ruleOpen.id} to the rules testers?`, ruleStep('test', (j) => `v${j.id} sent to testers.`)));
+  $('reRelease').addEventListener('click', () => confirmRule(`Release v${ruleOpen.id} to EVERY agency?`, ruleStep('release', (j) => `v${j.id} released to everyone.`)));
+  $('reRollback').addEventListener('click', () => confirmRule(`Bring back the rules of v${ruleOpen.id} for every agency (as a new version)?`, ruleStep('rollback', (j) => `Rolled back: v${j.id} is live.`)));
+  $('reCopy').addEventListener('click', run(ruleStep('copy', (j) => `New draft v${j.id}.`)));
+  $('reDelete').addEventListener('click', () => confirmRule(`Delete draft v${ruleOpen.id}?`, ruleStep('delete', () => 'Draft deleted.')));
+
+  // Key pair made in this browser; never sent anywhere.
+  $('genKey').addEventListener('click', run(async () => {
+    const k = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, true, ['sign', 'verify']);
+    const priv = await crypto.subtle.exportKey('jwk', k.privateKey);
+    const pub = await crypto.subtle.exportKey('jwk', k.publicKey);
+    $('genPriv').value = JSON.stringify(priv);
+    $('genPub').value = JSON.stringify(pub);
+    $('genOut').hidden = false;
+  }));
+  $('copyPub').addEventListener('click', () => copy($('pubKey').value, 'Public key copied.'));
+  $('copyPriv').addEventListener('click', () => copy($('genPriv').value, 'Private key copied. Paste it only into Cloudflare.'));
+  $('copyGenPub').addEventListener('click', () => copy($('genPub').value, 'Public key copied.'));
 
   if (adminKey) load().catch(() => signOut());
   setInterval(() => { if (adminKey && document.visibilityState === 'visible') load().catch(() => {}); }, 60000);

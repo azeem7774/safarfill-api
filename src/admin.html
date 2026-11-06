@@ -95,6 +95,19 @@
   #toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); background: var(--ink); color: var(--bg); padding: 10px 14px; border-radius: 8px; max-width: min(90vw, 520px); z-index: 5; }
   #login { max-width: 420px; margin: 60px auto; }
   [hidden] { display: none !important; }
+  nav#tabs { display: flex; gap: 6px; margin-left: 12px; }
+  nav#tabs .tab { background: transparent; color: inherit; border-color: rgba(255,255,255,.35); }
+  nav#tabs .tab.on { background: rgba(255,255,255,.95); color: #12488c; border-color: transparent; font-weight: 600; }
+  .view { display: grid; gap: 16px; }
+  textarea.code { font: 12px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace; min-height: 120px; resize: vertical; white-space: pre; }
+  .errs { margin: 8px 0 0; padding: 8px 12px 8px 26px; border: 1px solid var(--bad); background: var(--bad-bg); color: var(--bad); border-radius: 8px; }
+  .okmsg { margin-top: 8px; padding: 8px 12px; border: 1px solid var(--ok); background: var(--ok-bg); color: var(--ok); border-radius: 8px; }
+  .p-test { background: #e8e3fb; color: #4b2fa3; }
+  .pswitch { display: grid; grid-template-columns: 110px 90px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .pswitch:last-child { border-bottom: 0; }
+  @media (max-width: 700px) { .pswitch { grid-template-columns: 1fr 1fr; } }
+  .lvl-info { border-left: 4px solid var(--brand); } .lvl-warning { border-left: 4px solid var(--warn); } .lvl-urgent { border-left: 4px solid var(--bad); }
+  .ann { padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; margin-top: 8px; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; align-items: center; }
   .qbtns { display: flex; gap: 6px; }
   #printArea { display: none; }
   @media print {
@@ -125,6 +138,11 @@
 <body>
 <header>
   <h1>SafarFill Admin</h1>
+  <nav id="tabs" hidden>
+    <button class="tab on" data-tab="app">Licences</button>
+    <button class="tab" data-tab="rulesView">Rules</button>
+    <button class="tab" data-tab="portalsView">Portals &amp; messages</button>
+  </nav>
   <span class="sp"></span>
   <span id="who" class="small"></span>
   <button id="refreshTop" class="small" hidden>Refresh</button>
@@ -193,17 +211,22 @@
               <button id="reset" class="danger">Remove all computers</button>
               <button id="delKey" class="danger">Delete key</button>
             </div>
+            <div class="row" style="margin-top:8px">
+              <label class="row" style="gap:6px;margin:0;color:var(--ink);font-size:14px"><input type="checkbox" id="eTester" style="width:auto"> Rules tester (gets rules versions sent to testers)</label>
+            </div>
             <div id="confirmBox"></div>
           </div>
           <div>
             <h3 style="margin-top:0">Computers</h3>
-            <div class="tablewrap"><table><thead><tr><th>Computer</th><th>Name</th><th>Version</th><th>Last seen</th><th></th></tr></thead><tbody id="dDevices"></tbody></table></div>
+            <div class="tablewrap"><table><thead><tr><th>Computer</th><th>Name</th><th>Version</th><th>Last seen</th><th>Last place</th><th></th></tr></thead><tbody id="dDevices"></tbody></table></div>
             <h3>Usage</h3>
             <div class="tablewrap"><table><thead><tr><th>Month</th><th>Reads</th><th>Forms</th><th>AI reads</th><th>AI cost</th></tr></thead><tbody id="dUsage"></tbody></table></div>
             <h3>AI reads per computer</h3>
             <div class="tablewrap"><table><thead><tr><th>Computer</th><th>This month</th><th>Total</th><th>All AI calls</th><th>Last</th></tr></thead><tbody id="dAiDev"></tbody></table></div>
             <h3>Last 50 AI calls</h3>
             <div class="tablewrap" style="max-height:320px;overflow:auto"><table><thead><tr><th>Time</th><th>Computer</th><th>Version</th><th>Result</th><th>AI left</th><th>Image</th></tr></thead><tbody id="dAiCalls"></tbody></table></div>
+            <h3>Activity (last 100)</h3>
+            <div class="tablewrap" style="max-height:340px;overflow:auto"><table><thead><tr><th>Time</th><th>Computer</th><th>Action</th><th>Version</th><th>IP</th><th>Place</th></tr></thead><tbody id="dActs"></tbody></table></div>
             <h3>History</h3>
             <div class="tablewrap"><table><tbody id="dLog"></tbody></table></div>
           </div>
@@ -286,6 +309,85 @@
         <div class="feed" id="feed"></div>
       </section>
     </aside>
+  </div>
+  <div id="rulesView" class="view" hidden>
+    <section class="card">
+      <h2>Rules versions</h2>
+      <p class="note" id="rulesInfo"></p>
+      <div class="tablewrap"><table>
+        <thead><tr><th>Version</th><th>Status</th><th>Note</th><th>Airlines</th><th>Messages</th><th>Portals</th><th>Created</th><th></th></tr></thead>
+        <tbody id="rulesList"></tbody>
+      </table></div>
+    </section>
+
+    <section class="card" id="rulesEdit" hidden>
+      <div class="row"><h2 id="reTitle" style="margin:0;flex:1"></h2><button id="reClose">Close</button></div>
+      <p class="note" id="reHelp"></p>
+      <label for="reNote">Note</label><input id="reNote" maxlength="200">
+      <div class="split" style="margin-top:12px">
+        <div><label for="reAirlines">Airlines (JSON list)</label><textarea id="reAirlines" class="code" rows="16" spellcheck="false"></textarea></div>
+        <div><label for="reMessages">Messages (JSON object, key: text, max 300 characters each)</label><textarea id="reMessages" class="code" rows="16" spellcheck="false"></textarea></div>
+      </div>
+      <h3>Portal recipes (JSON, empty = none for that portal, max 200 KB each)</h3>
+      <div class="split">
+        <div><label for="reP_akbar">Akbar</label><textarea id="reP_akbar" class="code" rows="8" spellcheck="false"></textarea></div>
+        <div><label for="reP_alhind">Alhind</label><textarea id="reP_alhind" class="code" rows="8" spellcheck="false"></textarea></div>
+        <div><label for="reP_airsial">Air Sial</label><textarea id="reP_airsial" class="code" rows="8" spellcheck="false"></textarea></div>
+        <div><label for="reP_muqeem">Muqeem</label><textarea id="reP_muqeem" class="code" rows="8" spellcheck="false"></textarea></div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button id="reCheck">Check</button>
+        <button id="reSave" class="primary">Save draft</button>
+        <button id="reTest">Send to testers</button>
+        <button id="reRelease" class="primary">Release to all</button>
+        <button id="reCopy">New version from this</button>
+        <button id="reRollback" class="danger">Roll back to this</button>
+        <button id="reDelete" class="danger">Delete draft</button>
+      </div>
+      <div id="reMsg"></div>
+      <div id="reConfirm"></div>
+    </section>
+
+    <section class="card">
+      <h2>Signing key</h2>
+      <p class="note" id="keyState"></p>
+      <label for="pubKey">Public key (JWK): built into the SafarFill extension</label>
+      <div class="row" style="flex-wrap:nowrap"><textarea id="pubKey" class="code" rows="3" readonly style="flex:1;min-height:60px"></textarea><button id="copyPub">Copy</button></div>
+      <h3>Make a new key pair</h3>
+      <p class="note">The keys are made here, in your own browser. Nothing is sent to the server. Paste the private key into Cloudflare (Worker safarfill-api, Settings, Variables and Secrets, type Secret, name <b>RULES_PRIVATE_KEY</b>), then Deploy. Give the public key to the extension. A new key pair means the extension must be updated with the new public key.</p>
+      <button id="genKey">Make a new key pair</button>
+      <div id="genOut" hidden>
+        <label for="genPriv" style="margin-top:10px">PRIVATE key: paste into Cloudflare only. Never send it to anyone.</label>
+        <div class="row" style="flex-wrap:nowrap"><textarea id="genPriv" class="code" rows="4" readonly style="flex:1;min-height:70px"></textarea><button id="copyPriv">Copy</button></div>
+        <label for="genPub" style="margin-top:8px">Public key</label>
+        <div class="row" style="flex-wrap:nowrap"><textarea id="genPub" class="code" rows="3" readonly style="flex:1;min-height:60px"></textarea><button id="copyGenPub">Copy</button></div>
+      </div>
+    </section>
+  </div>
+
+  <div id="portalsView" class="view" hidden>
+    <section class="card">
+      <h2>Portal switches</h2>
+      <p class="note">Switch a portal off when its page changed and filling is wrong. SafarFill then refuses to fill that portal (for every agency) and shows your message. Works with SafarFill 1.1.x already.</p>
+      <div id="portalRows"></div>
+    </section>
+
+    <section class="card">
+      <h2>Messages to agents</h2>
+      <p class="note">Shown inside SafarFill (from the next SafarFill update). Plain text only.</p>
+      <label for="anText">Message (<span id="anCount">0</span>/300)</label>
+      <textarea id="anText" rows="2" maxlength="300"></textarea>
+      <div class="grid" style="margin-top:8px">
+        <div><label for="anLevel">Level</label><select id="anLevel"><option value="info">Info</option><option value="warning">Warning</option><option value="urgent">Urgent</option></select></div>
+        <div><label for="anLink">Link (optional, https)</label><input id="anLink" placeholder="https://sahllabs.com/..."></div>
+        <div><label for="anUntil">Show until (optional)</label><input id="anUntil" type="date"></div>
+        <div><label for="anType">Who sees it</label><select id="anType"><option value="all">Everyone</option><option value="plan">One plan</option><option value="licence">One licence</option></select></div>
+        <div id="anPlanBox" hidden><label for="anPlan">Plan</label><select id="anPlan"><option value="trial">Trial</option><option value="starter">Starter</option><option value="standard">Standard</option><option value="owner">Owner</option></select></div>
+        <div id="anKeyBox" hidden><label for="anKey">Licence key</label><input id="anKey" placeholder="SF-XXXX-XXXX-XXXX"></div>
+      </div>
+      <div class="row" style="margin-top:12px"><button id="anAdd" class="primary">Send message</button></div>
+      <div id="anList"></div>
+    </section>
   </div>
 </main>
 <div id="toast" hidden></div>

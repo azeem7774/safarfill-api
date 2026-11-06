@@ -8,14 +8,17 @@
 //   ANTHROPIC_KEY  Anthropic API key used for "Read with AI"
 //   ADMIN_KEY      long random password for the dashboard
 //   SIGNING_KEY    long random text used to sign the 24-hour passes
+//   RULES_PRIVATE_KEY  ECDSA P-256 private key (JWK) that signs the rules bundles (v1.9.0)
+// Cron Trigger (daily): deletes activity and AI-call logs older than 90 days.
 // Binding: D1 database as DB.
 
 import { parseMrz, pickMrzLines } from './mrz.js';
 import { TOOL, PROMPT } from './prompt.js';
 import ADMIN_HTML from './admin.html';
 import ADMIN_JS from './admin.client.js.txt';
+import * as p2 from './phase2.js';
 
-const API_VERSION = '1.8.0';
+const API_VERSION = '1.9.0';
 const DAY = 86400000;
 const PASS_MS = DAY; // a pass lets the extension keep working offline for up to a day
 
@@ -243,26 +246,31 @@ function licenceView(lic, usage) {
 
 // The pass proves "this key on this PC was valid a moment ago". Every call that costs
 // money or uses the parser also re-checks the licence live.
-async function requireLicence(env, req) {
+// what: the action name for the activity log ('' = do not log refusals here, e.g. AI calls have their own log).
+async function requireLicence(env, req, what = '') {
   const auth = req.headers.get('authorization') || '';
   const pass = await readPass(env, auth.replace(/^Bearer\s+/i, ''));
   if (!pass) return { error: fail(401, 'pass_invalid', 'Please reopen SafarFill to refresh your licence.') };
+  const refuse = async (code) => { if (what) await p2.logActivity(env, req, pass.k, pass.d, pass.v, 'refused', `${what}: ${code}`); };
   const lic = await getLicence(env, pass.k);
   const t = now();
   const problem = licenceProblem(lic, t);
   if (problem) {
     if (lic) await addEvent(env, lic.key, 'bad', problem[0], REFUSED[problem[0]], problem[1], 60);
+    if (lic) await refuse(problem[0]);
     return { error: fail(403, problem[0], problem[1]) };
   }
   const dev = await env.DB.prepare('SELECT 1 FROM devices WHERE key = ?1 AND device = ?2').bind(pass.k, pass.d).first();
   if (!dev) {
     const msg = 'This computer is no longer on your licence. Contact Sahl Labs.';
     await addEvent(env, lic.key, 'warn', 'device_removed', REFUSED.device_removed, msg, 60);
+    await refuse('device_removed');
     return { error: fail(403, 'device_removed', msg) };
   }
   const minVersion = await getSetting(env, 'min_version');
   if (minVersion && olderThan(pass.v, minVersion)) {
     await addEvent(env, lic.key, 'warn', 'update_required', `Uses old SafarFill ${pass.v || '(unknown)'}; ${minVersion} or newer needed`, UPDATE_MSG, 60);
+    await refuse('update_required');
     return { error: fail(426, 'update_required', UPDATE_MSG) };
   }
   return { lic, pass, t };
@@ -299,12 +307,14 @@ async function session(env, req) {
   if (problem) {
     if (lic) await addEvent(env, key, 'bad', problem[0], REFUSED[problem[0]], problem[1], 60);
     else await addEvent(env, 'SYSTEM', 'warn', 'unknown_key', 'Someone entered a key that does not exist', problem[1], 10);
+    if (lic) await p2.logActivity(env, req, key, device, version, 'refused', `session: ${problem[0]}`);
     return fail(403, problem[0], problem[1], lic ? { expires_at: lic.expires_at } : {});
   }
 
   const minVersion = await getSetting(env, 'min_version');
   if (minVersion && olderThan(version, minVersion)) {
     await addEvent(env, key, 'warn', 'update_required', `Uses old SafarFill ${version || '(unknown)'}; ${minVersion} or newer needed`, UPDATE_MSG, 60);
+    await p2.logActivity(env, req, key, device, version, 'refused', 'session: update_required');
     return fail(426, 'update_required', UPDATE_MSG);
   }
 
@@ -316,6 +326,7 @@ async function session(env, req) {
     if ((n ? n.n : 0) >= lic.max_devices) {
       const msg = `This licence is already used on ${lic.max_devices} computer(s). Contact Sahl Labs to add this one.`;
       await addEvent(env, key, 'warn', 'device_limit', `Refused: key already used on ${lic.max_devices} computer(s). A new computer, or Chrome was reinstalled`, msg, 60);
+      await p2.logActivity(env, req, key, device, version, 'refused', 'session: device_limit');
       return fail(403, 'device_limit', msg);
     }
     await env.DB.prepare('INSERT INTO devices (key, device, version, first_seen, last_seen) VALUES (?1, ?2, ?3, ?4, ?4)')
@@ -326,7 +337,9 @@ async function session(env, req) {
   const exp = lic.expires_at ? Math.min(t + PASS_MS, lic.expires_at) : t + PASS_MS;
   const pass = await signPass(env, { k: key, d: device, p: lic.portals, plan: lic.plan, v: version, exp });
   const usage = await getUsage(env, key, usageMonth(lic, t));
-  return json({ ok: true, pass, pass_expires: exp, licence: licenceView(lic, usage), support: await getSupport(env) });
+  await p2.logActivity(env, req, key, device, version, 'session');
+  return json({ ok: true, pass, pass_expires: exp, licence: licenceView(lic, usage), support: await getSupport(env),
+    rules_version: await p2.rulesVersionFor(env, lic), portal_status: await p2.portalStatus(env) });
 }
 
 function cleanLines(list, max) {
@@ -335,7 +348,7 @@ function cleanLines(list, max) {
 }
 
 async function parse(env, req) {
-  const g = await requireLicence(env, req);
+  const g = await requireLicence(env, req, req.headers.get('x-read-start') === '1' ? 'parse' : '');
   if (g.error) return g.error;
   if (await overLimit(env, g.lic.key, 'parse', LIMITS.parsePerMin)) return fail(429, 'too_many', 'Too many reads at once. Wait a minute.');
   let body;
@@ -364,13 +377,16 @@ async function parse(env, req) {
     });
   }
   // "Reads" = passport pages read: the extension sends X-Read-Start: 1 on the first call for a page only.
-  if (req.headers.get('x-read-start') === '1') await addUsage(env, g.lic.key, usageMonth(g.lic, g.t), 1, 0, 0);
+  if (req.headers.get('x-read-start') === '1') {
+    await addUsage(env, g.lic.key, usageMonth(g.lic, g.t), 1, 0, 0);
+    await p2.logActivity(env, req, g.pass.k, g.pass.d, g.pass.v, 'parse page');
+  }
   return json(out);
 }
 
 // "May I fill?" Asked by the extension every time Fill form is pressed.
 async function fillCheck(env, req) {
-  const g = await requireLicence(env, req);
+  const g = await requireLicence(env, req, 'fill');
   if (g.error) return g.error;
   if (await overLimit(env, g.lic.key, 'fill', LIMITS.fillPerMin)) return fail(429, 'too_many', 'Too many fills at once. Wait a minute.');
   let body = {};
@@ -380,12 +396,20 @@ async function fillCheck(env, req) {
   if (!g.lic.portals.includes(portal)) {
     const msg = 'This portal is not in your plan. Contact Sahl Labs to add it.';
     await addEvent(env, g.lic.key, 'warn', 'portal_not_in_plan', `Tried to fill ${portal}, which is not in their plan`, msg, 60);
+    await p2.logActivity(env, req, g.pass.k, g.pass.d, g.pass.v, 'refused', `fill ${portal}: portal_not_in_plan`);
     return fail(403, 'portal_not_in_plan', msg);
+  }
+  // Portal switched off in the dashboard: no filling until it is switched on again.
+  const ps = (await p2.portalStatus(env))[portal];
+  if (ps && !ps.on) {
+    await p2.logActivity(env, req, g.pass.k, g.pass.d, g.pass.v, 'refused', `fill ${portal}: portal_paused`);
+    return fail(423, 'portal_paused', ps.message);
   }
   await env.DB.prepare(
     `INSERT INTO usage (key, month, fill_count) VALUES (?1, ?2, 1)
      ON CONFLICT (key, month) DO UPDATE SET fill_count = fill_count + 1`
   ).bind(g.lic.key, usageMonth(g.lic, g.t)).run();
+  await p2.logActivity(env, req, g.pass.k, g.pass.d, g.pass.v, 'fill', portal);
   return json({ ok: true });
 }
 
@@ -408,17 +432,19 @@ async function aiRead(env, req) {
   if (pass) {
     let body = {};
     try { body = await res.clone().json(); } catch (e) { /* not JSON */ }
-    try { await logAiCall(env, pass, body.ok ? 'ok' : String(body.error || 'error').slice(0, 30), body.ai_left == null ? null : body.ai_left, size); } catch (e) { /* logging must never break a read */ }
+    try { await logAiCall(env, req, pass, body.ok ? 'ok' : String(body.error || 'error').slice(0, 30), body.ai_left == null ? null : body.ai_left, size); } catch (e) { /* logging must never break a read */ }
   }
   return res;
 }
 
 const AI_BURST = 30;   // AI calls by one computer in one hour
 const AI_REFUSED = 5;  // refused AI calls (quota / not in plan) by one computer in one hour
-async function logAiCall(env, pass, result, aiLeft, size) {
+async function logAiCall(env, req, pass, result, aiLeft, size) {
   const t = now();
-  await env.DB.prepare('INSERT INTO ai_calls (at, key, device, version, result, ai_left, size) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)')
-    .bind(t, pass.k, pass.d, String(pass.v || '').slice(0, 20), result, aiLeft, size).run();
+  const w = p2.where(req);
+  await env.DB.prepare('INSERT INTO ai_calls (at, key, device, version, result, ai_left, size, ip, city, country) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)')
+    .bind(t, pass.k, pass.d, String(pass.v || '').slice(0, 20), result, aiLeft, size, w.ip, w.city, w.country).run();
+  await p2.afterAiCall(env, pass.k, pass.d, t);
   const c = await env.DB.prepare(
     "SELECT COUNT(*) AS n, SUM(CASE WHEN result IN ('quota', 'ai_not_in_plan') THEN 1 ELSE 0 END) AS refused FROM ai_calls WHERE key = ?1 AND device = ?2 AND at > ?3"
   ).bind(pass.k, pass.d, t - 3600000).first();
@@ -550,6 +576,7 @@ async function ensureSchema(env) {
     'CREATE INDEX IF NOT EXISTS ai_calls_key ON ai_calls (key, at)',
     'CREATE INDEX IF NOT EXISTS ai_calls_dev ON ai_calls (key, device, at)',
     'CREATE TABLE IF NOT EXISTS device_names (key TEXT NOT NULL, device TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (key, device))',
+    ...p2.SCHEMA_SQL,
   ]) {
     try { await env.DB.prepare(sql).run(); } catch (e) { /* already there */ }
   }
@@ -566,6 +593,7 @@ async function ensureSchema(env) {
       await env.DB.prepare('UPDATE licences SET discount = ?2, price = ?3 WHERE key = ?1').bind(row.key, disc, quote(lic, disc, rates).total).run();
     }
   }
+  await p2.seedRules(env);
   schemaChecked = true;
 }
 
@@ -636,13 +664,14 @@ async function adminList(env) {
   // Open refusals from the last two days that you may want to act on.
   const open = (await env.DB.prepare(
     `SELECT e.*, l.agency FROM events e LEFT JOIN licences l ON l.key = e.key
-     WHERE e.done = 0 AND e.at > ?1 AND e.code IN ('device_limit', 'ai_not_in_trial', 'ai_unavailable', 'device_removed', 'portal_not_in_plan', 'ai_burst', 'ai_refused_burst')
+     WHERE e.done = 0 AND e.at > ?1 AND e.code IN ('device_limit', 'ai_not_in_trial', 'ai_unavailable', 'device_removed', 'portal_not_in_plan', 'ai_burst', 'ai_refused_burst', 'geo_country', 'geo_city', 'ip_many')
      ORDER BY e.at DESC LIMIT 30`
   ).bind(t - 2 * DAY).all()).results;
   return json({ ok: true, now: t, month: monthOf(t), plans: PLANS, prices: PRICES, rates: await getRates(env), portals: ALL_PORTALS,
     licences: results.map((r) => ({ ...r, portals: safeList(r.portals) })), totals, feed, open,
     quotes: (await env.DB.prepare('SELECT * FROM quotes ORDER BY id DESC LIMIT 50').all()).results.map((q) => ({ ...q, portals: safeList(q.portals), lines: parseLines(q.lines) })),
-    settings: { min_version: await getSetting(env, 'min_version'), support: await getSupport(env), payment: await getSetting(env, 'payment') } });
+    settings: { min_version: await getSetting(env, 'min_version'), support: await getSupport(env), payment: await getSetting(env, 'payment') },
+    portal_status: await p2.portalStatus(env), announcements: await p2.listAnnouncements(env) });
 }
 
 async function adminCreate(env, req) {
@@ -754,7 +783,8 @@ async function adminDetail(env, key) {
      FROM ai_calls WHERE key = ?1 GROUP BY device ORDER BY last DESC`
   ).bind(key, monthStart).all()).results;
   const aiCalls = (await env.DB.prepare('SELECT at, device, version, result, ai_left, size FROM ai_calls WHERE key = ?1 ORDER BY at DESC, id DESC LIMIT 50').bind(key).all()).results;
-  return json({ ok: true, licence: lic, devices, names, usage, log, ai_by_device: aiByDevice, ai_calls: aiCalls, quote: quote(lic, lic.discount, await getRates(env)) });
+  const act = await p2.activityFor(env, key);
+  return json({ ok: true, licence: lic, devices, names, usage, log, places: act.places, actions: act.actions, ai_by_device: aiByDevice, ai_calls: aiCalls, quote: quote(lic, lic.discount, await getRates(env)) });
 }
 
 async function adminAction(env, req) {
@@ -794,6 +824,18 @@ async function adminAction(env, req) {
     return json({ ok: true });
   }
   if (b.action === 'quote_status' || b.action === 'quote_accept') return quoteAction(env, b);
+  if (b.action === 'set_portal') {
+    const err = await p2.setPortal(env, String(b.portal || ''), !!b.on, b.message);
+    return err || json({ ok: true, portal_status: await p2.portalStatus(env) });
+  }
+  if (b.action === 'add_announcement') {
+    const err = await p2.addAnnouncement(env, b);
+    return err || json({ ok: true, announcements: await p2.listAnnouncements(env) });
+  }
+  if (b.action === 'delete_announcement') {
+    await p2.deleteAnnouncement(env, b.id);
+    return json({ ok: true, announcements: await p2.listAnnouncements(env) });
+  }
   if (b.action === 'dismiss') {
     await env.DB.prepare('UPDATE events SET done = 1 WHERE id = ?1').bind(intOr(b.event_id, 0)).run();
     return json({ ok: true });
@@ -861,11 +903,17 @@ async function adminAction(env, req) {
         env.DB.prepare('DELETE FROM events WHERE key = ?1').bind(key),
         env.DB.prepare('DELETE FROM ai_calls WHERE key = ?1').bind(key),
         env.DB.prepare('DELETE FROM device_names WHERE key = ?1').bind(key),
+        env.DB.prepare('DELETE FROM activity WHERE key = ?1').bind(key),
+        env.DB.prepare("DELETE FROM announcements WHERE target_type = 'licence' AND target = ?1").bind(key),
         env.DB.prepare('DELETE FROM licences WHERE key = ?1').bind(key),
       ]);
       await addEvent(env, 'SYSTEM', 'info', 'deleted', `Key ${key}${lic.agency ? ` (${lic.agency})` : ''} deleted`);
       return json({ ok: true, deleted: key });
     }
+    case 'set_rules_tester':
+      await run('UPDATE licences SET rules_tester = ?2 WHERE key = ?1', b.on ? 1 : 0);
+      await addEvent(env, key, 'info', 'rules_tester', b.on ? 'Marked as rules tester (gets test rules)' : 'No longer a rules tester');
+      break;
     case 'block':
       await run("UPDATE licences SET status = 'blocked' WHERE key = ?1");
       await addEvent(env, key, 'info', 'blocked_by_you', 'Blocked by you', 'This licence has been switched off. Contact Sahl Labs.');
@@ -928,7 +976,17 @@ async function adminAction(env, req) {
 
 // ---------------------------------------------------------------- router
 
+const WEBSITE = 'https://sahllabs.com';
+p2.setup({ json, fail, now, readPass, getLicence, addEvent, cleanText, intOr, getSetting, ALL_PORTALS });
+
 export default {
+  // Daily Cron Trigger: keeps 90 days of activity and AI-call logs.
+  async scheduled(event, env, ctx) {
+    if (!env.DB) return;
+    await ensureSchema(env);
+    ctx.waitUntil(p2.cleanUp(env));
+  },
+
   async fetch(req, env) {
     const url = new URL(req.url);
     const path = url.pathname.replace(/\/+$/, '') || '/';
@@ -941,7 +999,13 @@ export default {
       if (path === '/') return new Response('SafarFill API', { headers: { 'content-type': 'text/plain' } });
       if (path === '/favicon.ico') return new Response(null, { status: 204 });
       if (path === '/v1/ping') return json({ ok: true, version: API_VERSION });
-      if (path === '/v1/support') return json({ ok: true, ...(await getSupport(env)) });
+      if (path === '/v1/support') {
+        return json({ ok: true, ...(await getSupport(env)), website: WEBSITE, announcements: await p2.announcementsFor(env, req) });
+      }
+      if (path === '/v1/rules' && req.method === 'GET') {
+        const g = await requireLicence(env, req, 'rules');
+        return g.error || await p2.getRules(env, req, g);
+      }
       if (path === '/v1/session' && req.method === 'POST') return await session(env, req);
       if (path === '/v1/parse' && req.method === 'POST') return await parse(env, req);
       if (path === '/v1/ai' && req.method === 'POST') return await aiRead(env, req);
@@ -961,6 +1025,8 @@ export default {
         if (path === '/admin/api/licence' && req.method === 'GET') return await adminDetail(env, cleanText(url.searchParams.get('key'), 20).toUpperCase());
         if (path === '/admin/api/action' && req.method === 'POST') return await adminAction(env, req);
         if (path === '/admin/api/quotes' && req.method === 'POST') return await adminQuote(env, req);
+        if (path === '/admin/api/rules' && req.method === 'GET') return await p2.adminRules(env, url);
+        if (path === '/admin/api/rules' && req.method === 'POST') return await p2.adminRulesAction(env, req);
       }
       return fail(404, 'not_found', 'Not found.');
     } catch (e) {

@@ -1,8 +1,9 @@
-# SafarFill licence server — API for the extension (v1.8.0)
+# SafarFill licence server — API for the extension (v1.9.0)
 
 Base URL: `https://safarfill-api.azeemhfd.workers.dev`
 Worker name `safarfill-api`, D1 database `safarfill` (binding `DB`). Separate from `fq-relay`: no shared code, database or secrets.
-Secrets: `ANTHROPIC_KEY`, `ADMIN_KEY`, `SIGNING_KEY` (names only).
+Secrets: `ANTHROPIC_KEY`, `ADMIN_KEY`, `SIGNING_KEY`, `RULES_PRIVATE_KEY` (v1.9.0; names only).
+Cron Trigger (v1.9.0): daily, e.g. `0 2 * * *` — deletes activity and AI-call logs older than 90 days.
 Dashboard: `/admin` (password = `ADMIN_KEY`).
 
 All answers are JSON. Errors: `{ ok: false, error: "<code>", message: "<text to show the user>" }`. Show `message` as is.
@@ -22,7 +23,8 @@ Start or refresh. Call when the popup opens if there is no pass or it ends withi
 
 Request: `{ "key": "SF-XXXX-XXXX-XXXX", "device": "<random id made once at install, 8–64 of A-Z a-z 0-9 ->", "version": "1.1.0" }`
 
-Answer: `{ ok: true, pass, pass_expires, licence: { plan, agency, portals: [...], expires_at, ai_quota, ai_used, ai_left }, support: { whatsapp, email } }`
+Answer: `{ ok: true, pass, pass_expires, licence: { plan, agency, portals: [...], expires_at, ai_quota, ai_used, ai_left }, support: { whatsapp, email }, rules_version, portal_status }`
+- `rules_version`: the rules version this licence would get from /v1/rules (null if none). `portal_status`: see Portal switch below.
 - `pass` goes in `Authorization: Bearer <pass>` on every other call. It lasts up to 24 hours: the extension may keep working **offline** until `pass_expires`.
 - `expires_at` / `ai_left` are `null` for no limit.
 
@@ -55,14 +57,39 @@ Errors: `ai_not_in_plan` (402: AI is off on this licence, e.g. a trial; show the
 "May I fill?" Call it **every time Fill form is pressed**, before filling. Fill only when the answer is `ok: true`.
 - Body: `{ "portal": "akbar" | "alhind" | "airsial" | "muqeem" }`
 - Answer: `{ ok: true }` (the server counts one form filled for the dashboard).
-- Errors: `portal_not_in_plan` (403), `too_many`, plus the licence errors above. Show the message and do not fill.
+- Errors: `portal_not_in_plan` (403), **`portal_paused` (423)**: the portal is switched off in the dashboard (e.g. its page changed); `message` is the text to show. `too_many`, plus the licence errors above. Show the message and do not fill.
 - Offline (network error): do not fill; show "No internet connection. SafarFill needs the internet to check your licence."
 
 ## Version check (all calls)
 Send the extension's version in `/v1/session` (`"version": "1.1.0"`). If you set a minimum version in the dashboard, older versions get `update_required` (426) on every call. Show the message; it tells the user to update.
 
 ## GET /v1/support
-`{ ok: true, whatsapp, email }`. No licence needed, so the licence screen can show it before a key is entered or after a licence ends. `whatsapp` is digits with country code (e.g. `966512345678`); open `https://wa.me/<whatsapp>`. Empty string = not set: hide that button. Cache the last answer in chrome.storage.local for offline use.
+`{ ok: true, whatsapp, email, website, announcements }`. `website` = `"https://sahllabs.com"`. `announcements` = `[{ id, level: "info"|"warning"|"urgent", text, link|null, until|null }]`: **plain text, never HTML** (show with textContent). Without an Authorization header only the "everyone" messages are returned; with `Authorization: Bearer <pass>` also the messages for that licence's plan and for that licence. Ended messages (`until` passed) are left out.
+Earlier fields: No licence needed, so the licence screen can show it before a key is entered or after a licence ends. `whatsapp` is digits with country code (e.g. `966512345678`); open `https://wa.me/<whatsapp>`. Empty string = not set: hide that button. Cache the last answer in chrome.storage.local for offline use.
+
+## GET /v1/rules  (Bearer pass)  — Phase 2, v1.9.0
+Rules are **data only** (never code). Answer: `{ ok: true, version, payload, sig, portal_status }`
+- `payload`: a JSON **string** = exactly the bytes that were signed: `{ schema: 1, version, issued_at, airlines: [...], messages: { key: text }, portals: { <portal id>: <recipe JSON> } }`. `portals` contains only the portals in that licence's plan.
+- `sig`: base64 of the raw 64-byte ECDSA P-256 signature (r‖s, the WebCrypto format) over the UTF-8 bytes of `payload`, SHA-256. Verify with the public key built into the extension:
+  ```js
+  const key = await crypto.subtle.importKey('jwk', PUBLIC_JWK, { name: 'ECDSA', namedCurve: 'P-256' }, false, ['verify']);
+  const ok = await crypto.subtle.verify({ name: 'ECDSA', hash: 'SHA-256' }, key,
+    Uint8Array.from(atob(sig), (c) => c.charCodeAt(0)), new TextEncoder().encode(payload));
+  ```
+  Use the rules only if `ok` and `JSON.parse(payload).version` is **not lower** than the version already stored (a roll back is released as a new, higher version).
+- `?have=N`: when N is already the newest for this licence the answer is `{ ok: true, version: N, unchanged: true, portal_status }` (no payload).
+- Which version: the newest **released** one; a licence marked "rules tester" gets the newest **test** version if it is newer.
+- `portal_status`: `{ akbar: { on: true }, alhind: { on: false, message }, ... }` (also in /v1/session).
+- Errors: `no_rules` (404), `rules_not_ready` (503: RULES_PRIVATE_KEY not set), plus the licence errors.
+- Seed: version 1 = safarfill-airline-rules-v1.json (34 airlines, no portals), released.
+
+## Portal switch (v1.9.0)
+Dashboard → Portals & messages: each portal can be paused for every agency, with the message agents see (default `"<Portal> filling is paused for an update. Fill by hand for now."`). While paused, `/v1/fill` answers **423 `portal_paused`** with that message. Works with SafarFill 1.1.x already (it shows the server message and does not fill).
+
+## Activity log (v1.9.0)
+One row per action, kept **90 days** (daily Cron Trigger): time, licence key, computer id, SafarFill version, IP (CF-Connecting-IP), city + country (Cloudflare), action: `session`, `parse page` (only calls with X-Read-Start), `fill` + portal, `refused` + `<what>: <error code>`. AI calls stay in `ai_calls` (now also with IP, city, country) and are shown merged. Never passport details or images.
+- Dashboard per licence: each computer's last IP and place; the last 100 actions.
+- Needs your attention: one key used from **two countries** on the same (Saudi) day (`geo_country`, warning); from two cities (`geo_city`, info only: mobile internet often shows the wrong city); one computer from **more than 5 IPs** in a day (`ip_many`).
 
 ## GET /v1/ping
 `{ ok: true, version }`. No licence needed.
@@ -89,4 +116,10 @@ Send the extension's version in `/v1/session` (`"version": "1.1.0"`). If you set
 - **Needs your attention** also shows a computer with **more than 30 AI calls in one hour** (`ai_burst`), or **more than 5 refused AI calls (quota / not in plan) in one hour** (`ai_refused_burst`). Each is raised at most once per hour per licence.
 - Delete key also removes that key's AI call log.
 - **Computer names (v1.8.0)**: in a licence's Computers list, type a name for each computer (e.g. "Front desk", "Win7 PC") and press Save. Names show in the computer, AI-per-computer and AI-call lists and in the history ("Computer added (KeGhUhm8 · Front desk)"). A name is kept when a computer is removed, so it comes back if that computer enters the key again. Empty name = remove it. Nothing changes for the extension.
+- **Tabs (v1.9.0)**: Licences / Rules / Portals & messages.
+- **Rules**: list of versions (draft, test, released, retired); open a version; **New version from this** (draft copy); edit airlines, messages and each portal recipe as JSON; **Check** validates; **Save draft**; **Send to testers** (one test version at a time); **Release to all** (the previous release becomes retired); **Roll back to this** (re-releases an older version's rules as a NEW, higher version); delete a draft. Only drafts can be edited. Validation: airlines = list of { id (unique), name, rule, names [text], codes [text] }; messages = key: text (max 300); portals = akbar / alhind / airsial / muqeem, valid JSON, max 200 KB each; whole bundle max 900 KB.
+- **Signing key** card: shows the public key (from RULES_PRIVATE_KEY) and makes a new key pair **in the browser** (nothing sent to the server): the private key goes into the Cloudflare secret RULES_PRIVATE_KEY, the public key into the extension.
+- **Rules tester** checkbox on each licence.
+- **Portal switches** and **Messages to agents** (text max 300, level, optional https link, optional end date, target everyone / plan / licence).
+- Delete key also removes that key's activity log and its own messages.
 
