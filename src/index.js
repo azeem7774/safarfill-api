@@ -18,7 +18,7 @@ import ADMIN_HTML from './admin.html';
 import ADMIN_JS from './admin.client.js.txt';
 import * as p2 from './phase2.js';
 
-const API_VERSION = '1.9.2';
+const API_VERSION = '1.9.3';
 const DAY = 86400000;
 const PASS_MS = DAY; // a pass lets the extension keep working offline for up to a day
 
@@ -262,7 +262,7 @@ async function requireLicence(env, req, what = '') {
   }
   const dev = await env.DB.prepare('SELECT 1 FROM devices WHERE key = ?1 AND device = ?2').bind(pass.k, pass.d).first();
   if (!dev) {
-    const msg = 'This computer is no longer on your licence. Contact Sahl Labs.';
+    const msg = REMOVED_MSG;
     await addEvent(env, lic.key, 'warn', 'device_removed', REFUSED.device_removed, msg, 60);
     await refuse('device_removed');
     return { error: fail(403, 'device_removed', msg) };
@@ -319,6 +319,16 @@ async function session(env, req) {
   }
 
   const known = await env.DB.prepare('SELECT 1 FROM devices WHERE key = ?1 AND device = ?2').bind(key, device).first();
+  // A computer removed in the dashboard stays out, even with the key still saved on it, until "Allow again".
+  if (!known) {
+    const removed = await env.DB.prepare('SELECT 1 FROM removed_devices WHERE key = ?1 AND device = ?2').bind(key, device).first();
+    if (removed) {
+      await env.DB.prepare('UPDATE removed_devices SET last_try = ?3, tries = tries + 1 WHERE key = ?1 AND device = ?2').bind(key, device, t).run();
+      await addEvent(env, key, 'warn', 'device_removed', `${REFUSED.device_removed} (${await deviceLabel(env, key, device)})`, REMOVED_MSG, 60);
+      await p2.logActivity(env, req, key, device, version, 'refused', 'session: device_removed');
+      return fail(403, 'device_removed', REMOVED_MSG);
+    }
+  }
   if (known) {
     await env.DB.prepare('UPDATE devices SET last_seen = ?3, version = ?4 WHERE key = ?1 AND device = ?2').bind(key, device, t, version).run();
   } else {
@@ -576,6 +586,8 @@ async function ensureSchema(env) {
     'CREATE INDEX IF NOT EXISTS ai_calls_key ON ai_calls (key, at)',
     'CREATE INDEX IF NOT EXISTS ai_calls_dev ON ai_calls (key, device, at)',
     'CREATE TABLE IF NOT EXISTS device_names (key TEXT NOT NULL, device TEXT NOT NULL, name TEXT NOT NULL, PRIMARY KEY (key, device))',
+    `CREATE TABLE IF NOT EXISTS removed_devices (key TEXT NOT NULL, device TEXT NOT NULL, removed_at INTEGER NOT NULL,
+      last_try INTEGER, tries INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (key, device))`,
     ...p2.SCHEMA_SQL,
   ]) {
     try { await env.DB.prepare(sql).run(); } catch (e) { /* already there */ }
@@ -639,6 +651,7 @@ function olderThan(a, b) {
   }
   return false;
 }
+const REMOVED_MSG = 'This computer was removed from your licence. Contact Sahl Labs.';
 const UPDATE_MSG = 'A newer SafarFill is needed. Open chrome://extensions, turn on Developer mode and press Update, or reinstall SafarFill from the Chrome Web Store.';
 
 const cleanText = (s, n = 200) => String(s == null ? '' : s).trim().slice(0, n);
@@ -784,7 +797,8 @@ async function adminDetail(env, key) {
   ).bind(key, monthStart).all()).results;
   const aiCalls = (await env.DB.prepare('SELECT at, device, version, result, ai_left, size FROM ai_calls WHERE key = ?1 ORDER BY at DESC, id DESC LIMIT 50').bind(key).all()).results;
   const act = await p2.activityFor(env, key);
-  return json({ ok: true, licence: lic, devices, names, usage, log, places: act.places, actions: act.actions, ai_by_device: aiByDevice, ai_calls: aiCalls, quote: quote(lic, lic.discount, await getRates(env)) });
+  const removed = (await env.DB.prepare('SELECT device, removed_at, last_try, tries FROM removed_devices WHERE key = ?1 ORDER BY removed_at DESC').bind(key).all()).results;
+  return json({ ok: true, licence: lic, devices, names, removed, usage, log, places: act.places, actions: act.actions, ai_by_device: aiByDevice, ai_calls: aiCalls, quote: quote(lic, lic.discount, await getRates(env)) });
 }
 
 async function adminAction(env, req) {
@@ -903,6 +917,7 @@ async function adminAction(env, req) {
         env.DB.prepare('DELETE FROM events WHERE key = ?1').bind(key),
         env.DB.prepare('DELETE FROM ai_calls WHERE key = ?1').bind(key),
         env.DB.prepare('DELETE FROM device_names WHERE key = ?1').bind(key),
+        env.DB.prepare('DELETE FROM removed_devices WHERE key = ?1').bind(key),
         env.DB.prepare('DELETE FROM activity WHERE key = ?1').bind(key),
         env.DB.prepare("DELETE FROM announcements WHERE target_type = 'licence' AND target = ?1").bind(key),
         env.DB.prepare('DELETE FROM licences WHERE key = ?1').bind(key),
@@ -929,9 +944,19 @@ async function adminAction(env, req) {
       break;
     case 'remove_device': {
       const label = await deviceLabel(env, key, cleanText(b.device, 64));
-      await run('DELETE FROM devices WHERE key = ?1 AND device = ?2', cleanText(b.device, 64));
+      const dev = cleanText(b.device, 64);
+      await run('DELETE FROM devices WHERE key = ?1 AND device = ?2', dev);
+      await run('INSERT INTO removed_devices (key, device, removed_at) VALUES (?1, ?2, ?3) ON CONFLICT (key, device) DO UPDATE SET removed_at = ?3, last_try = NULL, tries = 0', dev, now());
       await closeEvents(env, key, ['device_limit', 'device_removed']);
-      await addEvent(env, key, 'info', 'device_removed_by_you', `Computer removed (${label})`, 'That computer must enter the key again.');
+      await addEvent(env, key, 'info', 'device_removed_by_you', `Computer removed (${label})`, 'It stays locked until you press "Allow again".');
+      break;
+    }
+    case 'allow_device': {
+      const dev = cleanText(b.device, 64);
+      const label = await deviceLabel(env, key, dev);
+      await run('DELETE FROM removed_devices WHERE key = ?1 AND device = ?2', dev);
+      await closeEvents(env, key, ['device_removed']);
+      await addEvent(env, key, 'info', 'device_allowed', `Computer allowed again (${label})`, 'It can use the key again (press Try again in SafarFill).');
       break;
     }
     case 'name_device': {

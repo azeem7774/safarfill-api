@@ -1,4 +1,4 @@
-# SafarFill licence server — API for the extension (v1.9.2)
+# SafarFill licence server — API for the extension (v1.9.3)
 
 Base URL: `https://safarfill-api.azeemhfd.workers.dev`
 Worker name `safarfill-api`, D1 database `safarfill` (binding `DB`). Separate from `fq-relay`: no shared code, database or secrets.
@@ -123,3 +123,9 @@ One row per action, kept **90 days** (daily Cron Trigger): time, licence key, co
 - **Portal switches** and **Messages to agents** (text max 300, level, optional https link, optional end date, target everyone / plan / licence).
 - Delete key also removes that key's activity log and its own messages.
 - **Licence panel (v1.9.2)**: Copy key and Copy WhatsApp message buttons next to the licence title.
+
+## Removed computers (v1.9.3)
+- **Remove** on a computer now also records it in `removed_devices`. That computer can no longer join again with the key still saved on it: `/v1/session` answers 403 `device_removed` ("This computer was removed from your licence. Contact Sahl Labs."), counts the try and raises the "removed computer is still trying" alert. Before v1.9.3 it was silently added back the next time SafarFill opened there.
+- The licence panel shows **Removed computers** (computer, removed, last try, tries) with **Allow again** (admin action `allow_device` `{ key, device }`); then SafarFill's **Try again** works on that computer.
+- A new computer can still join with the key as normal, up to the computer limit. **Remove all computers** (`reset_devices`) does not block: it is for freeing slots, and computers can join again.
+- Delete key also clears its removed-computers list.

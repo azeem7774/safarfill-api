@@ -89,6 +89,17 @@ CREATE TABLE IF NOT EXISTS device_names (
   PRIMARY KEY (key, device)
 );
 
+-- Computers removed in the dashboard (v1.9.3). They cannot join again with the saved key
+-- until "Allow again" deletes the row.
+CREATE TABLE IF NOT EXISTS removed_devices (
+  key        TEXT NOT NULL,
+  device     TEXT NOT NULL,
+  removed_at INTEGER NOT NULL,
+  last_try   INTEGER,
+  tries      INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (key, device)
+);
+
 -- Rules bundles (data only): { schema: 1, airlines, messages, portals }. status: draft | test | released | retired.
 CREATE TABLE IF NOT EXISTS rules (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,

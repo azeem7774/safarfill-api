@@ -83,6 +83,8 @@ const rm = await post('/admin/api/action', { key: starterKey, action: 'reset_dev
 ok(rm.j.devices.length === 0, 'reset devices');
 const afterRm = await post('/v1/parse', { lines: [L1, L2] }, { authorization: 'Bearer ' + ss.j.pass });
 ok(afterRm.j.error === 'device_removed', 'removed device rejected');
+const rejoin = await post('/v1/session', { key: starterKey, device: 'dev-st-0000001' });
+ok(rejoin.j.ok, 'after "remove all" computers can join again');
 const ext = await post('/admin/api/action', { key: starterKey, action: 'extend', days: 10 }, A);
 ok(ext.j.licence.expires_at > Date.now() + 39 * 86400e3, 'extend adds onto remaining');
 const paid = await post('/admin/api/action', { key: trialKey, action: 'make_paid', plan: 'standard' }, A);
@@ -217,10 +219,23 @@ ok(nd.devices[0].name === 'Front desk' && nd.names['dev-name-00001'] === 'Front 
 ok((await post('/admin/api/action', { key: nk.j.key, action: 'name_device', device: 'nope-000000', name: 'X' }, A)).s === 404, 'unknown computer refused');
 nd = (await post('/admin/api/action', { key: nk.j.key, action: 'remove_device', device: 'dev-name-00001' }, A)).j;
 ok(nd.log.some((e) => e.what.includes('dev-name · Front desk')), 'removal shows name');
+ok(nd.removed.length === 1 && nd.removed[0].device === 'dev-name-00001', 'removed computer listed');
+// v1.9.3: a removed computer cannot re-join with its saved key
+let back = await post('/v1/session', { key: nk.j.key, device: 'dev-name-00001', version: '1.1.3' });
+ok(back.s === 403 && back.j.error === 'device_removed', 'removed computer stays out');
+back = await post('/v1/session', { key: nk.j.key, device: 'dev-name-00001', version: '1.1.3' });
+nd = (await get('/admin/api/licence?key=' + nk.j.key, A)).j;
+ok(nd.devices.length === 0 && nd.removed[0].tries === 2 && nd.removed[0].last_try > 0, 'tries counted, not re-added');
+ok(nd.log.some((e) => e.code === 'device_removed' && !e.done), 'alert raised');
+const fresh = await post('/v1/session', { key: nk.j.key, device: 'dev-name-00002', version: '1.1.3' });
+ok(fresh.j.ok, 'a new computer still joins');
+nd = (await post('/admin/api/action', { key: nk.j.key, action: 'allow_device', device: 'dev-name-00001' }, A)).j;
+ok(nd.removed.length === 0 && nd.log.some((e) => e.code === 'device_allowed'), 'allow again');
 await post('/v1/session', { key: nk.j.key, device: 'dev-name-00001', version: '1.1.3' });
 nd = (await get('/admin/api/licence?key=' + nk.j.key, A)).j;
-ok(nd.devices[0].name === 'Front desk' && nd.log.some((e) => e.what === 'Computer added (dev-name · Front desk)'), 'name kept when computer returns');
+const nameDev = () => nd.devices.find((d) => d.device === 'dev-name-00001');
+ok(nameDev() && nameDev().name === 'Front desk' && nd.log.some((e) => e.what === 'Computer added (dev-name · Front desk)'), 'name kept when computer returns');
 nd = (await post('/admin/api/action', { key: nk.j.key, action: 'name_device', device: 'dev-name-00001', name: '' }, A)).j;
-ok(!nd.devices[0].name, 'name cleared');
+ok(!nameDev().name, 'name cleared');
 await post('/admin/api/action', { key: nk.j.key, action: 'delete_licence' }, A);
 console.log(`passed ${pass}, failed ${failN}`);

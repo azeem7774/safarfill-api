@@ -333,6 +333,9 @@
     $('dDevices').innerHTML = j.devices.map((d) => `<tr><td class="mono">${esc(d.device.slice(0, 8))}…</td>
       <td><div class="row" style="flex-wrap:nowrap;gap:4px"><input class="devname" data-name-for="${esc(d.device)}" value="${esc(d.name || '')}" maxlength="40" placeholder="e.g. Front desk" style="min-width:110px;padding:4px 6px"><button class="small" data-save-name="${esc(d.device)}">Save</button></div></td>
       <td>${esc(d.version)}</td><td>${ago(d.last_seen)}</td><td class="small">${place[d.device] ? `${esc(place[d.device].ip)}<br><span class="muted">${esc(where(place[d.device]))}</span>` : '<span class="muted">—</span>'}</td><td><button class="small danger" data-dev="${esc(d.device)}">Remove</button></td></tr>`).join('') || '<tr><td colspan="6" class="muted">Not used on any computer yet.</td></tr>';
+    const removed = j.removed || [];
+    $('dRemovedBox').hidden = !removed.length;
+    $('dRemoved').innerHTML = removed.map((r) => `<tr><td>${pc(r.device)}</td><td class="small">${fmtTime(r.removed_at)}</td><td>${r.last_try ? ago(r.last_try) : '<span class="muted">—</span>'}</td><td>${r.tries || 0}</td><td><button class="small" data-allow="${esc(r.device)}">Allow again</button></td></tr>`).join('');
     const actPill = (a) => {
       const cls = a.action === 'refused' ? 'p-bad' : a.action === 'ai' ? (a.detail === 'ok' ? 'p-ok' : 'p-warn') : 'p-muted';
       return `<span class="pill ${cls}">${esc(a.action)}</span>${a.detail ? ` <span class="small">${esc(a.detail)}</span>` : ''}`;
@@ -508,9 +511,13 @@
       return;
     }
     const b = e.target.closest('button[data-dev]');
-    if (b) askConfirm(`Remove computer ${b.dataset.dev.slice(0, 8)}${(current && b.closest('tr').querySelector('input[data-name-for]').value) ? ` (${b.closest('tr').querySelector('input[data-name-for]').value})` : ''}? It must enter the key again.`, () => act(current.key, 'remove_device', { device: b.dataset.dev }));
+    if (b) askConfirm(`Remove computer ${b.dataset.dev.slice(0, 8)}${(current && b.closest('tr').querySelector('input[data-name-for]').value) ? ` (${b.closest('tr').querySelector('input[data-name-for]').value})` : ''}? It stays locked until you press "Allow again".`, () => act(current.key, 'remove_device', { device: b.dataset.dev }));
   });
 
+  $('dRemoved').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-allow]');
+    if (b) run(() => act(current.key, 'allow_device', { device: b.dataset.allow }))();
+  });
   $('dCopyKey').addEventListener('click', () => current && copy(current.key, 'Key copied.'));
   $('dCopyMsg').addEventListener('click', () => current && copy(message(current.key), 'Message copied. Paste it in WhatsApp.'));
   $('eTester').addEventListener('change', run(() => act(current.key, 'set_rules_tester', { on: $('eTester').checked })));
