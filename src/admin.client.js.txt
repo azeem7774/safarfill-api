@@ -196,8 +196,8 @@
         <td class="mono">${esc(l.key)}</td><td>${esc(l.agency)}</td>
         <td>${esc(l.plan)}</td><td>${price(l) ? `${price(l)} SAR${price(l) !== planPrice(l.plan) ? ` <span class="muted small">${l.discount ? `−${esc(l.discount)}` : 'add-ons'}</span>` : ''}` : '<span class="muted">free</span>'}</td>
         <td>${statusPill(l)}</td><td>${expiryCell(l)}</td><td>${l.devices_used || 0} / ${l.max_devices}</td>
-        <td>${aiCell(l)}</td><td>${l.parse_count || 0}</td><td>${l.fill_count || 0}</td><td>${ago(l.last_seen)}</td>
-      </tr>`).join('') || '<tr><td colspan="11" class="muted">No licences yet. Create the first key below.</td></tr>';
+        <td>${aiCell(l)}</td><td>${l.parse_count || 0}</td><td><button class="small" data-copykey="${esc(l.key)}" title="Copy licence key">Copy key</button></td><td>${l.fill_count || 0}</td><td>${ago(l.last_seen)}</td>
+      </tr>`).join('') || '<tr><td colspan="12" class="muted">No licences yet. Create the first key below.</td></tr>';
 
     const liveOnes = data.licences.filter(live);
     const paid = liveOnes.filter((l) => price(l));
@@ -455,6 +455,8 @@
   }));
 
   $('list').addEventListener('click', (e) => {
+    const ck = e.target.closest('button[data-copykey]');
+    if (ck) { copy(ck.dataset.copykey, 'Key copied.'); return; }
     const tr = e.target.closest('tr[data-key]');
     if (tr) openDetail(tr.dataset.key).catch((err) => toast(err.message));
   });

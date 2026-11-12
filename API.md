@@ -1,9 +1,9 @@
-# SafarFill licence server — API for the extension (v1.9.1)
+# SafarFill licence server — API for the extension (v1.9.2)
 
 Base URL: `https://safarfill-api.azeemhfd.workers.dev`
 Worker name `safarfill-api`, D1 database `safarfill` (binding `DB`). Separate from `fq-relay`: no shared code, database or secrets.
 Secrets: `ANTHROPIC_KEY`, `ADMIN_KEY`, `SIGNING_KEY`, `RULES_PRIVATE_KEY` (v1.9.0; names only).
-Cron Trigger (v1.9.1): daily, e.g. `0 2 * * *` — deletes activity and AI-call logs older than 90 days.
+Cron Trigger (v1.9.2): daily, e.g. `0 2 * * *` — deletes activity and AI-call logs older than 90 days.
 Dashboard: `/admin` (password = `ADMIN_KEY`).
 
 All answers are JSON. Errors: `{ ok: false, error: "<code>", message: "<text to show the user>" }`. Show `message` as is.
@@ -83,10 +83,10 @@ Rules are **data only** (never code). Answer: `{ ok: true, version, payload, sig
 - Errors: `no_rules` (404), `rules_not_ready` (503: RULES_PRIVATE_KEY not set), plus the licence errors.
 - Seed: version 1 = safarfill-airline-rules-v1.json (34 airlines, no portals), released.
 
-## Portal switch (v1.9.1)
+## Portal switch (v1.9.2)
 Dashboard → Portals & messages: each portal can be paused for every agency, with the message agents see (default `"<Portal> filling is paused for an update. Fill by hand for now."`). While paused, `/v1/fill` answers **423 `portal_paused`** with that message. Works with SafarFill 1.1.x already (it shows the server message and does not fill).
 
-## Activity log (v1.9.1)
+## Activity log (v1.9.2)
 One row per action, kept **90 days** (daily Cron Trigger): time, licence key, computer id, SafarFill version, IP (CF-Connecting-IP), city + country (Cloudflare), action: `session`, `parse page` (only calls with X-Read-Start), `fill` + portal, `refused` + `<what>: <error code>`. AI calls stay in `ai_calls` (now also with IP, city, country) and are shown merged. Never passport details or images.
 - Dashboard per licence: each computer's last IP and place; the last 100 actions.
 - Needs your attention: one key used from **two countries** on the same (Saudi) day (`geo_country`, warning); from two cities (`geo_city`, info only: mobile internet often shows the wrong city); one computer from **more than 5 IPs** in a day (`ip_many`).
@@ -116,10 +116,10 @@ One row per action, kept **90 days** (daily Cron Trigger): time, licence key, co
 - **Needs your attention** also shows a computer with **more than 30 AI calls in one hour** (`ai_burst`), or **more than 5 refused AI calls (quota / not in plan) in one hour** (`ai_refused_burst`). Each is raised at most once per hour per licence.
 - Delete key also removes that key's AI call log.
 - **Computer names (v1.8.0)**: in a licence's Computers list, type a name for each computer (e.g. "Front desk", "Win7 PC") and press Save. Names show in the computer, AI-per-computer and AI-call lists and in the history ("Computer added (KeGhUhm8 · Front desk)"). A name is kept when a computer is removed, so it comes back if that computer enters the key again. Empty name = remove it. Nothing changes for the extension.
-- **Tabs (v1.9.1)**: Licences / Rules / Portals & messages.
+- **Tabs (v1.9.2)**: Licences / Rules / Portals & messages.
 - **Rules**: list of versions (draft, test, released, retired); open a version; **New version from this** (draft copy); edit airlines, messages and each portal recipe as JSON; **Check** validates; **Save draft**; **Send to testers** (one test version at a time); **Release to all** (the previous release becomes retired); **Roll back to this** (re-releases an older version's rules as a NEW, higher version); delete a draft. Only drafts can be edited. Validation: airlines = list of { id (unique), name, rule, names [text], codes [text] }; messages = key: text (max 300); portals = akbar / alhind / airsial / muqeem, valid JSON, max 200 KB each; whole bundle max 900 KB.
 - **Signing key** card: shows the public key (from RULES_PRIVATE_KEY) and makes a new key pair **in the browser** (nothing sent to the server): the private key goes into the Cloudflare secret RULES_PRIVATE_KEY, the public key into the extension.
 - **Rules tester** checkbox on each licence.
 - **Portal switches** and **Messages to agents** (text max 300, level, optional https link, optional end date, target everyone / plan / licence).
 - Delete key also removes that key's activity log and its own messages.
-- **Licence panel (v1.9.1)**: Copy key and Copy WhatsApp message buttons next to the licence title.
+- **Licence panel (v1.9.2)**: Copy key and Copy WhatsApp message buttons next to the licence title.

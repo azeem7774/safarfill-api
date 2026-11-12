@@ -127,7 +127,7 @@ d = (await get('/admin/api/licence?key=' + std, A)).j;
 ok(d.actions.length > 5, 'recent rows kept after clean-up');
 
 // --- compatibility: old endpoints unchanged
-ok((await get('/v1/ping')).j.version === '1.9.1', 'ping');
+ok((await get('/v1/ping')).j.version === '1.9.2', 'ping');
 ok((await post('/v1/session', { key: std, device: 'dev-rules-0001', version: '1.1.3' })).j.licence.portals.length === 4, 'session licence unchanged');
 
 for (const k of [std, st, ex]) await post('/admin/api/action', { key: k, action: 'delete_licence' }, A);
