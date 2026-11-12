@@ -1,0 +1,47 @@
+{
+  "theme": 1,
+  "colors": {
+    "light": {
+      "brand": "#14537D",
+      "brandText": "#FFFFFF",
+      "bg": "#F6F7F9",
+      "card": "#FFFFFF",
+      "text": "#17202B",
+      "muted": "#5D6B7A",
+      "line": "#D8DEE6",
+      "good": "#1B7A43",
+      "warn": "#9A5B00",
+      "bad": "#B3261E"
+    },
+    "dark": {
+      "brand": "#4DA3D9",
+      "brandText": "#0B1A24",
+      "bg": "#14181D",
+      "card": "#1D232B",
+      "text": "#E8EDF2",
+      "muted": "#9AA7B5",
+      "line": "#323B46",
+      "good": "#5FCE8C",
+      "warn": "#F2B84B",
+      "bad": "#FF8A80"
+    }
+  },
+  "textSize": "normal",
+  "compact": false,
+  "show": {
+    "company": true,
+    "news": true,
+    "aiAll": true,
+    "manual": true,
+    "openWindow": true
+  },
+  "labels": {
+    "fill": "Fill form",
+    "clear": "Clear all",
+    "refresh": "Refresh",
+    "manual": "+ Add a passenger by hand",
+    "settings": "Settings",
+    "title": "SafarFill"
+  },
+  "logo": ""
+}

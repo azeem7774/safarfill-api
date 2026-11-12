@@ -1,0 +1,96 @@
+{
+  "phone": 1,
+  "acceptPlus": true,
+  "accept00": true,
+  "local": [
+    {
+      "country": "SA",
+      "dial": "966",
+      "starts": [
+        "05"
+      ],
+      "length": 10,
+      "drop0": true
+    },
+    {
+      "country": "SA",
+      "dial": "966",
+      "starts": [
+        "5"
+      ],
+      "length": 9,
+      "drop0": false
+    },
+    {
+      "country": "PK",
+      "dial": "92",
+      "starts": [
+        "03"
+      ],
+      "length": 11,
+      "drop0": true
+    },
+    {
+      "country": "PK",
+      "dial": "92",
+      "starts": [
+        "3"
+      ],
+      "length": 10,
+      "drop0": false
+    },
+    {
+      "country": "BD",
+      "dial": "880",
+      "starts": [
+        "013",
+        "014",
+        "015",
+        "016",
+        "017",
+        "018",
+        "019"
+      ],
+      "length": 11,
+      "drop0": true
+    },
+    {
+      "country": "EG",
+      "dial": "20",
+      "starts": [
+        "010",
+        "011",
+        "012",
+        "015"
+      ],
+      "length": 11,
+      "drop0": true
+    },
+    {
+      "country": "PH",
+      "dial": "63",
+      "starts": [
+        "09"
+      ],
+      "length": 11,
+      "drop0": true
+    },
+    {
+      "country": "IN",
+      "dial": "91",
+      "starts": [
+        "6",
+        "7",
+        "8",
+        "9"
+      ],
+      "length": 10,
+      "drop0": false
+    }
+  ],
+  "notes": {
+    "unknown": "phone_unknown",
+    "notOffered": "phone_not_offered",
+    "unsure": "phone_unsure"
+  }
+}

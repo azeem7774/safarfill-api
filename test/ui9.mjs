@@ -1,0 +1,18 @@
+import { chromium } from '/home/claude/.npm-global/lib/node_modules/playwright/index.mjs';
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const p = await b.newPage({ viewport: { width: 1360, height: 1000 } });
+const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+await p.goto('http://localhost:8787/admin');
+await p.fill('#adminKey', 'test-admin-key-1234567890'); await p.click('#signin');
+await p.waitForSelector('#app:not([hidden])');
+await p.click('nav#tabs .tab[data-tab="rulesView"]'); await p.waitForTimeout(700);
+await p.click('#loadV13'); await p.waitForTimeout(1200);
+const phone = await p.inputValue('#rePhone'), theme = await p.inputValue('#reTheme');
+await p.click('#reCheck'); await p.waitForTimeout(700);
+const msg1 = await p.textContent('#reMsg');
+await p.fill('#reTheme', theme.replace('"#14537D"', '"blue"'));
+await p.click('#reCheck'); await p.waitForTimeout(700);
+const msg2 = await p.textContent('#reMsg');
+await p.locator('#rulesView').screenshot({ path: '/tmp/claude-0/rules13.png' });
+console.log({ phone: phone.length, theme: theme.length, msg1, msg2, title: await p.textContent('#reTitle'), errs });
+await b.close();

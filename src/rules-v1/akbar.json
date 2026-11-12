@@ -1,0 +1,142 @@
+{
+  "recipe": 1,
+  "dateFormat": "DD/MM/YYYY",
+  "rows": {
+    "selector": "[id^=\"paxEle\"]",
+    "idPrefix": "paxEle"
+  },
+  "controls": {
+    "docType": "DocumentType",
+    "title": "Title",
+    "first": "FName",
+    "last": "LName",
+    "dob": "DOB",
+    "nationality": "NationalityName",
+    "passportNo": "PassportNo",
+    "iqamaNo": "IqamaID",
+    "iqamaExpiry": "IQIDOE",
+    "issueDate": "PDOI"
+  },
+  "labels": {
+    "docType": [
+      "Document Type"
+    ],
+    "title": [
+      "Title"
+    ],
+    "first": [
+      "First Name"
+    ],
+    "last": [
+      "Last Name"
+    ],
+    "dob": [
+      "Date of Birth"
+    ],
+    "nationality": [
+      "Nationality"
+    ],
+    "passportNo": [
+      "Passport Number"
+    ],
+    "expiry": [
+      "Passport Expiry"
+    ],
+    "issuingCountry": [
+      "Issuing Country",
+      "Country"
+    ],
+    "issueDate": [
+      "Passport Issued",
+      "Passport Issue Date",
+      "Date of Issue",
+      "Issue Date"
+    ],
+    "iqamaNo": [
+      "Iqama ID",
+      "Iqama ID Number"
+    ],
+    "iqamaExpiry": [
+      "Iqama ID Expiry Date",
+      "Iqama ID Expiry"
+    ],
+    "nidNo": [
+      "National ID",
+      "National ID Number"
+    ],
+    "nidExpiry": [
+      "National ID Expiry Date",
+      "National ID Expiry"
+    ]
+  },
+  "optionalToggle": ".optional-fields h5",
+  "docTypes": {
+    "passport": [
+      "Passport"
+    ],
+    "iqama": [
+      "Iqama ID",
+      "Iqama"
+    ],
+    "nid": [
+      "National ID"
+    ]
+  },
+  "titles": {
+    "adult": {
+      "MR": [
+        "Mr"
+      ],
+      "MRS": [
+        "Mrs"
+      ],
+      "MS": [
+        "Ms",
+        "Miss"
+      ],
+      "MISS": [
+        "Miss",
+        "Ms"
+      ],
+      "MSTR": [
+        "Mstr",
+        "Master",
+        "Mst",
+        "Mast"
+      ]
+    },
+    "child": {
+      "MR": [
+        "Mr"
+      ],
+      "MRS": [
+        "Mrs"
+      ],
+      "MS": [
+        "Ms",
+        "Miss"
+      ],
+      "MISS": [
+        "Miss",
+        "Ms"
+      ],
+      "MSTR": [
+        "Mstr",
+        "Master",
+        "Mst",
+        "Mast"
+      ]
+    }
+  },
+  "phone": {
+    "main": {
+      "input": "#phoneInput, [formcontrolname=\"Mobile\"]"
+    },
+    "second": {
+      "input": "#destinationPhoneInput, [formcontrolname=\"DestMob\"]"
+    },
+    "offers": "page",
+    "keep0": false,
+    "overrides": {}
+  }
+}

@@ -319,8 +319,9 @@
     <section class="card">
       <h2>Rules versions</h2>
       <p class="note" id="rulesInfo"></p>
+      <div class="row" style="margin-bottom:10px"><button id="loadV13" class="small">New draft with SafarFill 1.3 starting values</button><span class="small muted">Live rules + portal recipes, phone rules, theme and the 1.3 texts (same as SafarFill's built-in values).</span></div>
       <div class="tablewrap"><table>
-        <thead><tr><th>Version</th><th>Status</th><th>Note</th><th>Airlines</th><th>Messages</th><th>Portals</th><th>Created</th><th></th></tr></thead>
+        <thead><tr><th>Version</th><th>Status</th><th>Note</th><th>Airlines</th><th>Messages</th><th>Portals</th><th>Phone</th><th>Theme</th><th>Created</th><th></th></tr></thead>
         <tbody id="rulesList"></tbody>
       </table></div>
     </section>
@@ -339,6 +340,11 @@
         <div><label for="reP_alhind">Alhind</label><textarea id="reP_alhind" class="code" rows="8" spellcheck="false"></textarea></div>
         <div><label for="reP_airsial">Air Sial</label><textarea id="reP_airsial" class="code" rows="8" spellcheck="false"></textarea></div>
         <div><label for="reP_muqeem">Muqeem</label><textarea id="reP_muqeem" class="code" rows="8" spellcheck="false"></textarea></div>
+      </div>
+      <h3>Phone rules and theme (SafarFill 1.3+, JSON, empty = SafarFill's built-in ones)</h3>
+      <div class="split">
+        <div><label for="rePhone">Phone rules (max 20 KB)</label><textarea id="rePhone" class="code" rows="8" spellcheck="false"></textarea></div>
+        <div><label for="reTheme">Theme (max 10 KB)</label><textarea id="reTheme" class="code" rows="8" spellcheck="false"></textarea></div>
       </div>
       <div class="row" style="margin-top:12px">
         <button id="reCheck">Check</button>

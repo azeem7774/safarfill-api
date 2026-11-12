@@ -1,4 +1,4 @@
-# SafarFill licence server — API for the extension (v1.9.3)
+# SafarFill licence server — API for the extension (v1.10.0)
 
 Base URL: `https://safarfill-api.azeemhfd.workers.dev`
 Worker name `safarfill-api`, D1 database `safarfill` (binding `DB`). Separate from `fq-relay`: no shared code, database or secrets.
@@ -129,3 +129,10 @@ One row per action, kept **90 days** (daily Cron Trigger): time, licence key, co
 - The licence panel shows **Removed computers** (computer, removed, last try, tries) with **Allow again** (admin action `allow_device` `{ key, device }`); then SafarFill's **Try again** works on that computer.
 - A new computer can still join with the key as normal, up to the computer limit. **Remove all computers** (`reset_devices`) does not block: it is for freeing slots, and computers can join again.
 - Delete key also clears its removed-computers list.
+
+## Portal recipes, phone rules and theme (v1.10.0, for SafarFill 1.3.0)
+- Rules bundles may carry `phone` (max 20 KB) and `theme` (max 10 KB) next to `airlines`, `messages`, `portals`. `/v1/rules` puts them in the signed payload when present (portals still only those in the licence's plan). SafarFill 1.2.x ignores them.
+- **Check / Save / Send to testers / Release** refuse any value SafarFill 1.3 would ignore — same checks as the extension (`src/rules-check.js` is copied from SafarFill 1.3.0 `lib/recipes.js`, `lib/phone.js`, `lib/theme.js`; keep it in step). Recipes must have `"recipe": 1`; unknown keys, wrong types, bad selectors (`<`, `{`, `}`), bad ids/control names, date formats outside the list, bad colours, logo hosts other than sahllabs.com / www.sahllabs.com / safarfill-api.azeemhfd.workers.dev, and the key names `__proto__`, `prototype`, `constructor` are refused. A phone note key needs a text in Messages (except the built-in phone_unknown / phone_not_offered / phone_unsure). An empty `phone.local` list is refused.
+- Formats: project doc `claude/safarfill-v1.3-formats.md`. Starting values (= SafarFill 1.3 built-in): `src/rules-v1/*.json`.
+- Rules tab: **New draft with SafarFill 1.3 starting values** (live rules + the four recipes, phone, theme and the 10 new texts, added only where missing); **Phone rules** and **Theme** boxes; Phone/Theme columns in the versions list.
+- `POST /v1/fill` accepts `rules_ignored`: up to 20 paths (max 80 chars, only letters, digits, `_ . -` kept) of rules values SafarFill could not use. Logged in the licence's Activity as `rules_ignored` ("rules vN: path, path …") and raised as a warning in Attention.

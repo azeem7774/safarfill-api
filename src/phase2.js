@@ -1,4 +1,4 @@
-// SafarFill licence server, Phase 2 step 1 (v1.9.0):
+// SafarFill licence server, Phase 2 (v1.9.0; recipes, phone and theme checks v1.10.0):
 // - Rules service: versioned rule bundles (airlines, messages, portal recipes), signed with ECDSA P-256.
 // - Portal on/off switch (server-enforced in /v1/fill).
 // - Announcements to agents (/v1/support).
@@ -6,6 +6,32 @@
 // Rules and recipes are DATA ONLY. The server never sends code.
 
 import SEED_V1 from './airlines-v1.json';
+import * as rc from './rules-check.js';
+import V13_AKBAR from './rules-v1/akbar.json';
+import V13_ALHIND from './rules-v1/alhind.json';
+import V13_AIRSIAL from './rules-v1/airsial.json';
+import V13_MUQEEM from './rules-v1/muqeem.json';
+import V13_PHONE from './rules-v1/phone.json';
+import V13_THEME from './rules-v1/theme.json';
+
+// SafarFill 1.3 starting values (= the extension's built-in ones, from its docs/rules-v1/).
+const V13 = {
+  portals: { akbar: V13_AKBAR, alhind: V13_ALHIND, airsial: V13_AIRSIAL, muqeem: V13_MUQEEM },
+  phone: V13_PHONE,
+  theme: V13_THEME,
+  messages: {
+    one_name_no_airline: '{name} has only one name, and the airline of this booking was not found. SafarFill has no name rule to apply, so the name will be filled as on the passport (one box left empty).',
+    one_name_father_missing: "{name} has only one name. {airline} needs the father's name, and it is empty. The name will be filled as on the passport (one box left empty).",
+    one_name_other: '{name} has only one name. {problem} The name will be filled as on the passport (one box left empty).',
+    dob_needed: 'Enter the date of birth first: without it SafarFill cannot tell an adult from a child or infant, so this passenger is not filled.',
+    two_airlines: "This booking shows two airlines with different name rules for one-name passports: {airlines}. Which airline's rule should be used?",
+    sex_differs: 'the gender on the bottom lines reads {mrz}, but the printed page seems to show {printed}',
+    not_read: "Can't read this with the built-in reader. Iqama or ID card? Press Read with AI.",
+    phone_unknown: 'Type it with the + country code or choose the flag.',
+    phone_not_offered: '{portal} has no +{dial} in its list: use another number or choose by hand.',
+    phone_unsure: "+{dial} fits more than one country in {portal}'s list: choose the flag.",
+  },
+};
 
 let h = null; // helpers from index.js (json, fail, now, readPass, ...)
 export function setup(helpers) { h = helpers; }
@@ -14,6 +40,9 @@ const DAY = 86400000;
 const MAX_RECIPE = 200 * 1024;   // bytes per portal recipe
 const MAX_BUNDLE = 900 * 1024;   // whole bundle (D1 row stays well under its limit)
 const MAX_MSG = 300;
+const MAX_PHONE = 20 * 1024;     // payload.phone (v1.3.0)
+const MAX_THEME = 10 * 1024;     // payload.theme (v1.3.0)
+const BUILT_IN_NOTES = ['phone_unknown', 'phone_not_offered', 'phone_unsure'];
 const RIYADH = 3 * 3600000;      // "same day" = a calendar day in Saudi time
 export const KEEP_DAYS = 90;
 
@@ -57,6 +86,9 @@ export function validateBundle(input) {
     try { b = JSON.parse(b); } catch (e) { return { ok: false, errors: [`Not valid JSON: ${e.message}`] }; }
   }
   if (!b || typeof b !== 'object' || Array.isArray(b)) return { ok: false, errors: ['The bundle must be a JSON object.'] };
+  const bad = rc.badKeys(b);
+  if (bad.length) return { ok: false, errors: bad.slice(0, 20).map((p) => `${p}: this key name is not allowed.`) };
+  const notUsable = (path) => `${path}: not allowed — wrong value, wrong type or unknown key (SafarFill 1.3 would ignore it).`;
   if (b.schema !== 1) errors.push('"schema" must be 1.');
   const airlines = b.airlines === undefined ? [] : b.airlines;
   if (!Array.isArray(airlines)) errors.push('"airlines" must be a list.');
@@ -86,8 +118,38 @@ export function validateBundle(input) {
     if (!h.ALL_PORTALS.includes(k)) errors.push(`portals.${k}: unknown portal (use ${h.ALL_PORTALS.join(', ')}).`);
     const size = new TextEncoder().encode(JSON.stringify(v)).length;
     if (size > MAX_RECIPE) errors.push(`portals.${k}: ${Math.round(size / 1024)} KB, more than 200 KB.`);
+    else if (h.ALL_PORTALS.includes(k)) {
+      // Same checks as the extension (src/rules-check.js).
+      if (!v || typeof v !== 'object' || Array.isArray(v)) errors.push(`portals.${k}: must be a JSON object (a recipe).`);
+      else if (v.recipe !== 1) errors.push(`portals.${k}.recipe: must be 1.`);
+      else for (const path of rc.recipeFor(k, v).ignored) errors.push(notUsable(path));
+    }
+  }
+  const msgs = messages && typeof messages === 'object' && !Array.isArray(messages) ? messages : {};
+  if (b.phone !== undefined) {
+    const size = new TextEncoder().encode(JSON.stringify(b.phone)).length;
+    if (size > MAX_PHONE) errors.push(`phone: ${Math.round(size / 1024)} KB, more than 20 KB.`);
+    else if (!b.phone || typeof b.phone !== 'object' || Array.isArray(b.phone)) errors.push('phone: must be a JSON object.');
+    else {
+      const r = rc.phoneRules(b.phone);
+      for (const path of r.ignored) errors.push(notUsable(path));
+      if (Array.isArray(b.phone.local) && !b.phone.local.length) errors.push('phone.local: the list is empty (SafarFill would use its built-in rules).');
+      if (b.phone.notes && typeof b.phone.notes === 'object') {
+        for (const [k, key] of Object.entries(b.phone.notes)) {
+          if (typeof key === 'string' && !BUILT_IN_NOTES.includes(key) && !isStr(msgs[key])) errors.push(`phone.notes.${k}: no text for "${key}" in Messages.`);
+        }
+      }
+    }
+  }
+  if (b.theme !== undefined) {
+    const size = new TextEncoder().encode(JSON.stringify(b.theme)).length;
+    if (size > MAX_THEME) errors.push(`theme: ${Math.round(size / 1024)} KB, more than 10 KB.`);
+    else if (!b.theme || typeof b.theme !== 'object' || Array.isArray(b.theme)) errors.push('theme: must be a JSON object.');
+    else for (const path of rc.themeFor(b.theme).ignored) errors.push(notUsable(path));
   }
   const clean = { schema: 1, airlines: Array.isArray(airlines) ? airlines : [], messages: messages || {}, portals: portals || {} };
+  if (b.phone !== undefined) clean.phone = b.phone;
+  if (b.theme !== undefined) clean.theme = b.theme;
   if (new TextEncoder().encode(JSON.stringify(clean)).length > MAX_BUNDLE) errors.push('The whole bundle is larger than 900 KB.');
   return { ok: errors.length === 0, bundle: clean, errors };
 }
@@ -158,6 +220,8 @@ export async function getRules(env, req, g) {
   const payload = JSON.stringify({
     schema: 1, version: row.id, issued_at: h.now(),
     airlines: bundle.airlines || [], messages: bundle.messages || {}, portals,
+    ...(bundle.phone !== undefined ? { phone: bundle.phone } : {}),
+    ...(bundle.theme !== undefined ? { theme: bundle.theme } : {}),
   });
   const sig = await signPayload(env, payload);
   if (!sig) return h.fail(503, 'rules_not_ready', 'The rules service is not set up yet. Contact Sahl Labs.', { portal_status });
@@ -270,7 +334,7 @@ export async function logActivity(env, req, key, device, version, action, detail
     ).bind(key, device || '', w.ip, w.city, dayStart(t)).first();
     await env.DB.prepare(
       'INSERT INTO activity (at, key, device, version, ip, city, country, action, detail) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)'
-    ).bind(t, key, device || '', String(version || '').slice(0, 20), w.ip, w.city, w.country, action, String(detail || '').slice(0, 60)).run();
+    ).bind(t, key, device || '', String(version || '').slice(0, 20), w.ip, w.city, w.country, action, String(detail || '').slice(0, action === 'rules_ignored' ? 1800 : 60)).run();
     if (!seen) await placeAlerts(env, key, device || '', t);
   } catch (e) {
     console.error('activity log failed', e && e.message);
@@ -344,7 +408,8 @@ export async function adminRules(env, url) {
       let b = {};
       try { b = JSON.parse(r.body); } catch (e) { b = {}; }
       return { id: r.id, created_at: r.created_at, status: r.status, note: r.note, released_at: r.released_at, size: r.size,
-        airlines: (b.airlines || []).length, messages: Object.keys(b.messages || {}).length, portals: Object.keys(b.portals || {}) };
+        airlines: (b.airlines || []).length, messages: Object.keys(b.messages || {}).length, portals: Object.keys(b.portals || {}),
+        phone: b.phone !== undefined, theme: b.theme !== undefined };
     });
   const live = await env.DB.prepare("SELECT id FROM rules WHERE status = 'released' ORDER BY id DESC LIMIT 1").first();
   const test = await env.DB.prepare("SELECT id FROM rules WHERE status IN ('released', 'test') ORDER BY id DESC LIMIT 1").first();
@@ -360,6 +425,23 @@ export async function adminRulesAction(env, req) {
   if (b.action === 'check') {
     const v = validateBundle(b.body);
     return h.json({ ok: v.ok, errors: v.errors });
+  }
+  if (b.action === 'load_v13') {
+    // New draft = the live rules + the SafarFill 1.3 starting values (portal recipes, phone, theme,
+    // texts). The starting values equal the extension's built-in ones, so releasing it changes nothing.
+    const base = await env.DB.prepare("SELECT id, body FROM rules WHERE status = 'released' ORDER BY id DESC LIMIT 1").first()
+      || await env.DB.prepare('SELECT id, body FROM rules ORDER BY id DESC LIMIT 1').first();
+    let body = {};
+    try { body = base ? JSON.parse(base.body) : {}; } catch (e) { body = {}; }
+    const messages = { ...(body.messages || {}) };
+    for (const [k, v] of Object.entries(V13.messages)) if (messages[k] === undefined) messages[k] = v;
+    const next = { schema: 1, airlines: body.airlines || [], messages, portals: { ...(body.portals || {}), ...V13.portals }, phone: V13.phone, theme: V13.theme };
+    const v = validateBundle(next);
+    if (!v.ok) return h.json({ ok: false, error: 'invalid', message: 'The 1.3 starting values do not pass the check.', errors: v.errors }, 400);
+    const r = await env.DB.prepare("INSERT INTO rules (created_at, status, note, body) VALUES (?1, 'draft', ?2, ?3)")
+      .bind(t, `SafarFill 1.3 starting values (recipes, phone, theme) on top of v${base ? base.id : '—'}`, JSON.stringify(v.bundle)).run();
+    await h.addEvent(env, 'SYSTEM', 'info', 'rules', `Rules v${r.meta.last_row_id}: new draft with the SafarFill 1.3 starting values`);
+    return h.json({ ok: true, id: r.meta.last_row_id });
   }
   if (b.action === 'copy') {
     const src = await get(b.id);

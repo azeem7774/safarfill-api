@@ -337,7 +337,7 @@
     $('dRemovedBox').hidden = !removed.length;
     $('dRemoved').innerHTML = removed.map((r) => `<tr><td>${pc(r.device)}</td><td class="small">${fmtTime(r.removed_at)}</td><td>${r.last_try ? ago(r.last_try) : '<span class="muted">—</span>'}</td><td>${r.tries || 0}</td><td><button class="small" data-allow="${esc(r.device)}">Allow again</button></td></tr>`).join('');
     const actPill = (a) => {
-      const cls = a.action === 'refused' ? 'p-bad' : a.action === 'ai' ? (a.detail === 'ok' ? 'p-ok' : 'p-warn') : 'p-muted';
+      const cls = a.action === 'refused' ? 'p-bad' : a.action === 'rules_ignored' ? 'p-warn' : a.action === 'ai' ? (a.detail === 'ok' ? 'p-ok' : 'p-warn') : 'p-muted';
       return `<span class="pill ${cls}">${esc(a.action)}</span>${a.detail ? ` <span class="small">${esc(a.detail)}</span>` : ''}`;
     };
     $('dActs').innerHTML = (j.actions || []).map((a) => `<tr><td class="muted small">${fmtTime(a.at)}</td><td>${a.device ? pc(a.device) : '<span class="muted">—</span>'}</td><td>${actPill(a)}</td><td>${esc(a.version || '')}</td><td class="small mono">${esc(a.ip || '')}</td><td class="small">${esc(where(a))}</td></tr>`).join('') || '<tr><td colspan="6" class="muted">No activity yet.</td></tr>';
@@ -592,7 +592,7 @@
     $('rulesInfo').innerHTML = `Everyone gets <b>v${rules.live == null ? '—' : rules.live}</b>. Rules testers (${testerN}${testerN ? `: ${rules.testers.map((t) => esc(t.agency || t.key)).join(', ')}` : ''}) get <b>v${rules.testers_get == null ? '—' : rules.testers_get}</b>. Mark a licence as tester in its detail panel.`;
     const pill = (s) => `<span class="pill ${s === 'released' ? 'p-ok' : s === 'test' ? 'p-test' : s === 'draft' ? 'p-warn' : 'p-muted'}">${s}</span>`;
     $('rulesList').innerHTML = rules.versions.map((v) => `<tr class="click" data-rule="${v.id}"><td><b>v${v.id}</b>${v.id === rules.live ? ' <span class="small muted">live</span>' : ''}</td><td>${pill(v.status)}</td><td class="wrap">${esc(v.note)}</td>
-      <td>${v.airlines}</td><td>${v.messages}</td><td>${v.portals.map((p) => esc(NAMES[p] || p)).join(', ') || '<span class="muted">none</span>'}</td><td class="small muted">${fmtTime(v.created_at)}</td><td><button class="small">Open</button></td></tr>`).join('');
+      <td>${v.airlines}</td><td>${v.messages}</td><td>${v.portals.map((p) => esc(NAMES[p] || p)).join(', ') || '<span class="muted">none</span>'}</td><td>${v.phone ? '✓' : '<span class="muted">—</span>'}</td><td>${v.theme ? '✓' : '<span class="muted">—</span>'}</td><td class="small muted">${fmtTime(v.created_at)}</td><td><button class="small">Open</button></td></tr>`).join('');
     $('keyState').innerHTML = rules.key_set
       ? (rules.public_key ? 'RULES_PRIVATE_KEY is set. The server signs every rules download.' : '<b style="color:var(--bad)">RULES_PRIVATE_KEY is set but is not a valid P-256 private key (JWK).</b>')
       : '<b style="color:var(--bad)">RULES_PRIVATE_KEY is not set.</b> /v1/rules answers "not set up" until you add it. Make a key pair below.';
@@ -618,7 +618,9 @@
     $('reAirlines').value = pretty(r.body.airlines || []);
     $('reMessages').value = pretty(r.body.messages || {});
     for (const p of PORTAL_IDS) $(`reP_${p}`).value = r.body.portals && r.body.portals[p] !== undefined ? pretty(r.body.portals[p]) : '';
-    for (const id2 of ['reNote', 'reAirlines', 'reMessages', ...PORTAL_IDS.map((p) => `reP_${p}`)]) $(id2).readOnly = !draft;
+    $('rePhone').value = r.body.phone !== undefined ? pretty(r.body.phone) : '';
+    $('reTheme').value = r.body.theme !== undefined ? pretty(r.body.theme) : '';
+    for (const id2 of ['reNote', 'reAirlines', 'reMessages', 'rePhone', 'reTheme', ...PORTAL_IDS.map((p) => `reP_${p}`)]) $(id2).readOnly = !draft;
     $('reSave').hidden = !draft; $('reDelete').hidden = !draft;
     $('reTest').hidden = !['draft'].includes(r.status);
     $('reRelease').hidden = !['draft', 'test'].includes(r.status);
@@ -635,6 +637,8 @@
     };
     const body = { schema: 1, airlines: parse('reAirlines', 'Airlines') || [], messages: parse('reMessages', 'Messages') || {}, portals: {} };
     for (const p of PORTAL_IDS) { const v = parse(`reP_${p}`, NAMES[p]); if (v !== undefined) body.portals[p] = v; }
+    const phone = parse('rePhone', 'Phone rules'); if (phone !== undefined) body.phone = phone;
+    const theme = parse('reTheme', 'Theme'); if (theme !== undefined) body.theme = theme;
     return errors.length ? { errors } : { body };
   }
   const showErrs = (errs) => { $('reMsg').innerHTML = `<ul class="errs">${errs.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>`; };
@@ -674,6 +678,12 @@
   $('reTest').addEventListener('click', () => confirmRule(`Send v${ruleOpen.id} to the rules testers?`, ruleStep('test', (j) => `v${j.id} sent to testers.`)));
   $('reRelease').addEventListener('click', () => confirmRule(`Release v${ruleOpen.id} to EVERY agency?`, ruleStep('release', (j) => `v${j.id} released to everyone.`)));
   $('reRollback').addEventListener('click', () => confirmRule(`Bring back the rules of v${ruleOpen.id} for every agency (as a new version)?`, ruleStep('rollback', (j) => `Rolled back: v${j.id} is live.`)));
+  $('loadV13').addEventListener('click', run(async () => {
+    const j = await rulesCall({ action: 'load_v13' });
+    if (!j.ok) { toast(j.message || 'Could not make the draft.'); return; }
+    await loadRules(); await openRule(j.id);
+    toast(`New draft v${j.id} with the SafarFill 1.3 starting values. Send it to testers first.`);
+  }));
   $('reCopy').addEventListener('click', run(ruleStep('copy', (j) => `New draft v${j.id}.`)));
   $('reDelete').addEventListener('click', () => confirmRule(`Delete draft v${ruleOpen.id}?`, ruleStep('delete', () => 'Draft deleted.')));
 

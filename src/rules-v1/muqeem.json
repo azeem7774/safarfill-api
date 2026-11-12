@@ -1,0 +1,20 @@
+{
+  "recipe": 1,
+  "visaRadioName": "visaType",
+  "visaValues": {
+    "exitReentry": "ER",
+    "visit": "VISIT"
+  },
+  "numberBox": "input[name=\"firstFieldValue\"]",
+  "checkUsing": "input[type=\"radio\"][name=\"firstFieldType\"][value=\"iqamaNumber\"]",
+  "matchList": "p-dropdown[formcontrolname=\"secondFieldType\"]",
+  "matchTexts": [
+    "date of birth",
+    "تاريخ الميلاد"
+  ],
+  "dateBox": "elm-date-picker input",
+  "checkTexts": [
+    "check",
+    "تحقق"
+  ]
+}

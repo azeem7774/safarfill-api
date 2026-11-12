@@ -18,7 +18,7 @@ import ADMIN_HTML from './admin.html';
 import ADMIN_JS from './admin.client.js.txt';
 import * as p2 from './phase2.js';
 
-const API_VERSION = '1.9.3';
+const API_VERSION = '1.10.0';
 const DAY = 86400000;
 const PASS_MS = DAY; // a pass lets the extension keep working offline for up to a day
 
@@ -420,6 +420,15 @@ async function fillCheck(env, req) {
      ON CONFLICT (key, month) DO UPDATE SET fill_count = fill_count + 1`
   ).bind(g.lic.key, usageMonth(g.lic, g.t)).run();
   await p2.logActivity(env, req, g.pass.k, g.pass.d, g.pass.v, 'fill', portal);
+  // SafarFill 1.3+: values from the rules it could not use (sent once per rules version per computer).
+  if (Array.isArray(body.rules_ignored) && body.rules_ignored.length) {
+    const paths = body.rules_ignored.slice(0, 20).map((x) => String(x || '').slice(0, 80).replace(/[^A-Za-z0-9_.\-]/g, '?')).filter(Boolean);
+    if (paths.length) {
+      const rv = await p2.rulesVersionFor(env, g.lic);
+      await p2.logActivity(env, req, g.pass.k, g.pass.d, g.pass.v, 'rules_ignored', `rules v${rv ?? '?'}: ${paths.join(', ')}`);
+      await addEvent(env, g.lic.key, 'warn', 'rules_ignored', `SafarFill could not use ${paths.length} value(s) from rules v${rv ?? '?'} (${paths.slice(0, 3).join(', ')}${paths.length > 3 ? ' …' : ''})`, 'Check the rules version: open the licence → Activity for the full list.', 60);
+    }
+  }
   return json({ ok: true });
 }
 
@@ -677,7 +686,7 @@ async function adminList(env) {
   // Open refusals from the last two days that you may want to act on.
   const open = (await env.DB.prepare(
     `SELECT e.*, l.agency FROM events e LEFT JOIN licences l ON l.key = e.key
-     WHERE e.done = 0 AND e.at > ?1 AND e.code IN ('device_limit', 'ai_not_in_trial', 'ai_unavailable', 'device_removed', 'portal_not_in_plan', 'ai_burst', 'ai_refused_burst', 'geo_country', 'geo_city', 'ip_many')
+     WHERE e.done = 0 AND e.at > ?1 AND e.code IN ('device_limit', 'ai_not_in_trial', 'ai_unavailable', 'device_removed', 'portal_not_in_plan', 'ai_burst', 'ai_refused_burst', 'geo_country', 'geo_city', 'ip_many', 'rules_ignored')
      ORDER BY e.at DESC LIMIT 30`
   ).bind(t - 2 * DAY).all()).results;
   return json({ ok: true, now: t, month: monthOf(t), plans: PLANS, prices: PRICES, rates: await getRates(env), portals: ALL_PORTALS,

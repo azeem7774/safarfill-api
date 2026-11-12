@@ -1,0 +1,136 @@
+{
+  "recipe": 1,
+  "dateFormat": "DD-MM-YYYY",
+  "rows": {
+    "titleSelector": "select[id^=\"ddl\"][id*=\"Title_\"]",
+    "titlePrefix": "ddl",
+    "titleWord": "Title_",
+    "kinds": {
+      "Adult": "ADT",
+      "Child": "CHD",
+      "Infant": "INF"
+    },
+    "blockMarker": "input[name=\"dob\"]"
+  },
+  "fields": {
+    "first": "input[id*=\"FirstName\"]",
+    "last": "input[id*=\"LastName\"]",
+    "docType": "select[name=\"pdocument\"], select[id*=\"documenttype\"]",
+    "number": "input[name=\"pnumber\"], input[id*=\"PassportNo_\"], input[id*=\"DocumentNumber\"]",
+    "dob": "input[name=\"dob\"]",
+    "nationality": "select[id*=\"Nationality\"]",
+    "issuingCountry": "select[id*=\"IssuedBy\"], select[id*=\"CountryofIssue\"]",
+    "expiry": "input[id*=\"xpiry\"]"
+  },
+  "docTypes": {
+    "passport": {
+      "value": "Passport",
+      "label": "Passport"
+    },
+    "iqama": {
+      "value": "ResidencePermit",
+      "label": "Saudi Residence Permit"
+    },
+    "nid": {
+      "value": "NationalId",
+      "label": "Saudi National Id"
+    }
+  },
+  "titles": {
+    "adult": {
+      "MR": [
+        "MR"
+      ],
+      "MRS": [
+        "MRS"
+      ],
+      "MS": [
+        "MS",
+        "MISS"
+      ],
+      "MISS": [
+        "MS",
+        "MISS"
+      ],
+      "MSTR": [
+        "MR"
+      ]
+    },
+    "child": {
+      "MSTR": [
+        "MSTR",
+        "MASTER"
+      ],
+      "MISS": [
+        "MISS"
+      ],
+      "MR": [
+        "MSTR",
+        "MASTER"
+      ],
+      "MS": [
+        "MISS"
+      ],
+      "MRS": [
+        "MISS"
+      ]
+    }
+  },
+  "countryAliases": {
+    "SYRIA": [
+      "SYRIANARABREPUBLIC"
+    ],
+    "RUSSIA": [
+      "RUSSIANFEDERATION"
+    ],
+    "SOUTHKOREA": [
+      "REPUBLICOFKOREA",
+      "KOREAREPUBLICOF"
+    ],
+    "PALESTINE": [
+      "PALESTINIANTERRITORY",
+      "PALESTINIANTERRITORYOCCUPIED",
+      "STATEOFPALESTINE"
+    ],
+    "IRAN": [
+      "IRANISLAMICREPUBLICOF"
+    ],
+    "TANZANIA": [
+      "TANZANIAUNITEDREPUBLICOF",
+      "UNITEDREPUBLICOFTANZANIA"
+    ],
+    "UNITEDSTATES": [
+      "UNITEDSTATESOFAMERICA",
+      "USA"
+    ],
+    "CZECHREPUBLIC": [
+      "CZECHIA"
+    ],
+    "TURKEY": [
+      "TURKIYE"
+    ],
+    "LIBYA": [
+      "LIBYANARABJAMAHIRIYA"
+    ],
+    "MYANMAR": [
+      "BURMA"
+    ],
+    "BOSNIAANDHERZEGOVINA": [
+      "BOSNIAHERZEGOVINA"
+    ]
+  },
+  "email": "#txtEmail",
+  "phone": {
+    "main": {
+      "code": "#contactnumber",
+      "input": "#passengercontact"
+    },
+    "second": {
+      "code": "#Extcontactnumber",
+      "input": "input[name=\"Extcontactnumber\"]"
+    },
+    "offers": "page",
+    "keep0": false,
+    "overrides": {}
+  }
+}

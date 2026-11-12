@@ -43,7 +43,27 @@ const bad = await post('/admin/api/rules', { action: 'save', id: draft, body: { 
 ok(bad.s === 400 && bad.j.errors.length >= 3, 'invalid bundle refused: ' + JSON.stringify(bad.j.errors));
 const big = 'x'.repeat(210 * 1024);
 ok((await post('/admin/api/rules', { action: 'check', body: { schema: 1, airlines: [], messages: {}, portals: { akbar: { big } } } }, A)).j.errors.some((e) => e.includes('200 KB')), 'recipe over 200 KB refused');
-const body2 = { ...full.body, messages: { fill_done: 'Filled. Check the form.' }, portals: { akbar: { steps: [1, 2] }, alhind: { steps: [3] } } };
+// v1.10.0: recipes, phone and theme checked like SafarFill 1.3 does
+const chk = async (body) => (await post('/admin/api/rules', { action: 'check', body: { schema: 1, airlines: [], messages: {}, portals: {}, ...body } }, A)).j;
+const has = (j, s) => !j.ok && j.errors.some((e) => e.includes(s));
+ok(has(await chk({ portals: { akbar: { recipe: 2 } } }), 'portals.akbar.recipe'), 'recipe must be 1');
+ok(has(await chk({ portals: { akbar: { recipe: 1, controls: { first: 'F Name!' } } } }), 'portals.akbar.controls.first'), 'bad control name refused');
+ok(has(await chk({ portals: { akbar: { recipe: 1, controls: 'FName' } } }), 'portals.akbar.controls'), 'group as single value refused (no crash)');
+ok(has(await chk({ portals: { akbar: { recipe: 1, dateFormat: 'DD/MM/YY' } } }), 'dateFormat'), 'bad date format refused');
+ok(has(await chk({ portals: { alhind: { recipe: 1, fields: { first: 'input<script>' } } } }), 'fields.first'), 'bad selector refused');
+ok(has(await chk({ portals: { akbar: { recipe: 1, colour: 'x' } } }), 'portals.akbar.colour'), 'unknown recipe key refused');
+ok(has(await chk({ portals: { airsial: { recipe: 1, rows: { ADT: { first: 'F_AdultName{n}{n}' } } } } }), 'rows.ADT.first'), 'bad Air Sial id refused');
+ok(has(JSON.parse(JSON.stringify(await (await fetch(B + '/admin/api/rules', { method: 'POST', headers: A, body: '{"action":"check","body":{"schema":1,"portals":{"akbar":{"recipe":1,"__proto__":{"x":"y"}}}}}' })).json())), '__proto__'), '__proto__ key refused');
+ok(has(await chk({ phone: { phone: 1, local: [{ country: 'PK', dial: '92', starts: ['03'], length: 30, drop0: true }] } }), 'phone.local.0'), 'bad phone rule refused');
+ok(has(await chk({ phone: { phone: 1, local: [] } }), 'phone.local'), 'empty phone list refused');
+ok(has(await chk({ phone: { phone: 1, notes: { unknown: 'my_note' } } }), 'no text for "my_note"'), 'phone note needs a message');
+ok((await chk({ phone: { phone: 1, notes: { unknown: 'my_note' } }, messages: { my_note: 'Choose the flag.' } })).ok, 'phone note with message ok');
+ok(has(await chk({ theme: { theme: 1, colors: { light: { brand: 'red' } } } }), 'theme.colors.light.brand'), 'bad colour refused');
+ok(has(await chk({ theme: { theme: 1, logo: 'https://evil.example.com/x.png' } }), 'theme.logo'), 'logo host refused');
+ok(has(await chk({ theme: { theme: 1, show: { warnings: false } } }), 'theme.show.warnings'), 'unknown show key refused');
+ok(has(await chk({ theme: { theme: 1, labels: { fill: 'x'.repeat(61) } } }), 'theme.labels.fill'), 'long label refused');
+ok((await chk({ theme: { theme: 1, textSize: 'large', compact: true, colors: { dark: { brand: '#112233' } }, logo: 'https://sahllabs.com/logo.png' } })).ok, 'good theme ok');
+const body2 = { ...full.body, messages: { fill_done: 'Filled. Check the form.' }, portals: { akbar: { recipe: 1, dateFormat: 'DD-MM-YYYY' }, alhind: { recipe: 1 } } };
 ok((await post('/admin/api/rules', { action: 'save', id: draft, body: body2, note: 'akbar + alhind recipes' }, A)).j.ok, 'draft saved');
 ok((await post('/admin/api/rules', { action: 'test', id: draft }, A)).j.ok, 'sent to testers');
 ok((await get('/v1/rules', P1)).j.version === v1, 'normal licence still gets released version');
@@ -127,7 +147,30 @@ d = (await get('/admin/api/licence?key=' + std, A)).j;
 ok(d.actions.length > 5, 'recent rows kept after clean-up');
 
 // --- compatibility: old endpoints unchanged
-ok((await get('/v1/ping')).j.version === '1.9.3', 'ping');
+ok((await get('/v1/ping')).j.version === '1.10.0', 'ping');
+
+// --- 6. SafarFill 1.3 starting values, phone + theme in the signed payload, rules_ignored
+const v13 = await post('/admin/api/rules', { action: 'load_v13' }, A);
+ok(v13.j.ok, 'load 1.3 starting values: ' + JSON.stringify(v13.j.errors || ''));
+const d13 = (await get('/admin/api/rules?id=' + v13.j.id, A)).j.rules;
+ok(d13.status === 'draft' && d13.body.portals.akbar.recipe === 1 && d13.body.portals.muqeem && d13.body.phone.local.length === 8 && d13.body.theme.theme === 1, 'draft has recipes, phone, theme');
+ok(d13.body.messages.phone_unsure && d13.body.messages.one_name_no_airline && d13.body.airlines.length === 34, 'draft keeps airlines, adds texts');
+ok((await post('/admin/api/rules', { action: 'test', id: v13.j.id }, A)).j.ok, '1.3 draft passes and goes to testers');
+r = await get('/v1/rules', P1);
+let pl13 = JSON.parse(r.j.payload);
+ok(r.j.version === v13.j.id && pl13.phone && pl13.theme && pl13.portals.alhind.recipe === 1, 'tester payload has phone + theme');
+ok(await verify(r.j.payload, r.j.sig), '1.3 payload signature verifies');
+ok(JSON.parse((await get('/v1/rules', P2)).j.payload).phone === undefined, 'non-tester still on the old version');
+list = (await get('/admin/api/rules', A)).j;
+ok(list.versions.find((v) => v.id === v13.j.id).phone === true && list.versions.find((v) => v.id === v13.j.id).theme === true, 'list shows phone + theme');
+const fi = await post('/v1/fill', { portal: 'alhind', rules_ignored: ['portals.alhind.fields.first', 'theme.colors.light.brand', '<b>x</b>'] }, P1);
+ok(fi.j.ok, 'fill with rules_ignored ok');
+d = (await get('/admin/api/licence?key=' + std, A)).j;
+const ri = d.actions.find((a) => a.action === 'rules_ignored');
+ok(ri && ri.detail.startsWith('rules v' + v13.j.id + ': portals.alhind.fields.first, theme.colors.light.brand') && !ri.detail.includes('<'), 'rules_ignored logged: ' + (ri && ri.detail));
+open = (await get('/admin/api/licences', A)).j.open;
+ok(open.some((e) => e.code === 'rules_ignored' && e.key === std), 'rules_ignored alert');
+ok((await post('/admin/api/rules', { action: 'delete', id: v13.j.id }, A)).s === 400, 'test version not deletable');
 ok((await post('/v1/session', { key: std, device: 'dev-rules-0001', version: '1.1.3' })).j.licence.portals.length === 4, 'session licence unchanged');
 
 for (const k of [std, st, ex]) await post('/admin/api/action', { key: k, action: 'delete_licence' }, A);

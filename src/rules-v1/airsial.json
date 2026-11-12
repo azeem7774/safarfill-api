@@ -1,0 +1,106 @@
+{
+  "recipe": 1,
+  "dateFormat": "DD-MM-YYYY",
+  "form": "#myForm, form[name=\"myForm\"]",
+  "rows": {
+    "ADT": {
+      "label": "Adult",
+      "title": "Adult_Title{n}",
+      "first": "F_AdultName{n}",
+      "last": "L_AdultName{n}",
+      "dob": "AdultDob_{n}",
+      "cnic": "Adult_Nic{n}",
+      "pass": "Adult_Pass{n}",
+      "country": "cntry_adult{n}",
+      "expiry": "AdultpPortEx_{n}"
+    },
+    "CHD": {
+      "label": "Child",
+      "title": "Child_Gender{n}",
+      "first": "F_ChildName{n}",
+      "last": "L_ChildName{n}",
+      "dob": "ChildDob_{n}",
+      "pass": "L_Child_Pass{n}",
+      "country": "cntry_L_Child{n}",
+      "expiry": "ChildpPortEx_{n}"
+    },
+    "INF": {
+      "label": "Infant",
+      "title": "Infant_Gender{n}",
+      "first": "F_InfantName{n}",
+      "last": "L_InfantName{n}",
+      "dob": "InfantDob_{n}",
+      "pass": "F_Infant_Pass{n}",
+      "country": "cntry_F_Infant{n}",
+      "expiry": "InfantpPortEx_{n}"
+    }
+  },
+  "passportLength": 9,
+  "titles": {
+    "adult": {
+      "MR": [
+        "MR"
+      ],
+      "MRS": [
+        "MRS"
+      ],
+      "MS": [
+        "MISS",
+        "MS"
+      ],
+      "MISS": [
+        "MISS",
+        "MS"
+      ]
+    },
+    "child": {
+      "MSTR": [
+        "MSTR",
+        "MASTER"
+      ],
+      "MISS": [
+        "MISS"
+      ],
+      "MR": [
+        "MSTR"
+      ],
+      "MS": [
+        "MISS"
+      ],
+      "MRS": [
+        "MISS"
+      ]
+    }
+  },
+  "countryAliases": {
+    "UNITEDARABEMIRATES": [
+      "UAE"
+    ],
+    "UNITEDSTATES": [
+      "UNITEDSTATESOFAMERICA"
+    ],
+    "UNITEDKINGDOM": [
+      "UNITEDKINGDOM",
+      "ENGLAND"
+    ]
+  },
+  "email": "txtemail",
+  "phone": {
+    "main": {
+      "code": "orig_tel",
+      "input": "adult_cell_no1"
+    },
+    "second": {
+      "code": "dest_tel",
+      "input": "AdultPhone1"
+    },
+    "offers": "page",
+    "keep0": true,
+    "overrides": {
+      "92": {
+        "keep0": true,
+        "dashAfter": 4
+      }
+    }
+  }
+}
