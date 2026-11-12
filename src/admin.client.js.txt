@@ -509,6 +509,8 @@
     if (b) askConfirm(`Remove computer ${b.dataset.dev.slice(0, 8)}${(current && b.closest('tr').querySelector('input[data-name-for]').value) ? ` (${b.closest('tr').querySelector('input[data-name-for]').value})` : ''}? It must enter the key again.`, () => act(current.key, 'remove_device', { device: b.dataset.dev }));
   });
 
+  $('dCopyKey').addEventListener('click', () => current && copy(current.key, 'Key copied.'));
+  $('dCopyMsg').addEventListener('click', () => current && copy(message(current.key), 'Message copied. Paste it in WhatsApp.'));
   $('eTester').addEventListener('change', run(() => act(current.key, 'set_rules_tester', { on: $('eTester').checked })));
   for (const b of document.querySelectorAll('nav#tabs .tab')) b.addEventListener('click', () => showTab(b.dataset.tab));
 
