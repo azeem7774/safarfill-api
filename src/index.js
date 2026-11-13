@@ -18,7 +18,7 @@ import ADMIN_HTML from './admin.html';
 import ADMIN_JS from './admin.client.js.txt';
 import * as p2 from './phase2.js';
 
-const API_VERSION = '1.10.0';
+const API_VERSION = '1.10.1';
 const DAY = 86400000;
 const PASS_MS = DAY; // a pass lets the extension keep working offline for up to a day
 

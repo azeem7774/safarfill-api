@@ -623,6 +623,7 @@
     for (const id2 of ['reNote', 'reAirlines', 'reMessages', 'rePhone', 'reTheme', ...PORTAL_IDS.map((p) => `reP_${p}`)]) $(id2).readOnly = !draft;
     $('reSave').hidden = !draft; $('reDelete').hidden = !draft;
     $('reTest').hidden = !['draft'].includes(r.status);
+    $('reUntest').hidden = r.status !== 'test';
     $('reRelease').hidden = !['draft', 'test'].includes(r.status);
     $('reRollback').hidden = !(r.status === 'retired' || (r.status === 'released' && r.id !== rules.live));
     $('rulesEdit').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -676,6 +677,7 @@
     toast(done(j));
   };
   $('reTest').addEventListener('click', () => confirmRule(`Send v${ruleOpen.id} to the rules testers?`, ruleStep('test', (j) => `v${j.id} sent to testers.`)));
+  $('reUntest').addEventListener('click', () => confirmRule(`Stop testing v${ruleOpen.id}? It becomes a draft again (you can edit or delete it), and testers get v${rules.live == null ? '—' : rules.live} from now on. A computer that already downloaded v${ruleOpen.id} keeps it until a higher version is released.`, ruleStep('untest', (j) => `v${j.id} is a draft again.`)));
   $('reRelease').addEventListener('click', () => confirmRule(`Release v${ruleOpen.id} to EVERY agency?`, ruleStep('release', (j) => `v${j.id} released to everyone.`)));
   $('reRollback').addEventListener('click', () => confirmRule(`Bring back the rules of v${ruleOpen.id} for every agency (as a new version)?`, ruleStep('rollback', (j) => `Rolled back: v${j.id} is live.`)));
   $('loadV13').addEventListener('click', run(async () => {

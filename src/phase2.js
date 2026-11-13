@@ -479,6 +479,14 @@ export async function adminRulesAction(env, req) {
     }
     return h.json({ ok: true, id: row.id });
   }
+  if (b.action === 'untest') {
+    // Takes a version out of test: it becomes a draft again (can be edited or deleted).
+    // Computers that already downloaded it keep it until a higher version is released.
+    if (row.status !== 'test') return h.fail(400, 'not_test', `v${row.id} is not in test.`);
+    await env.DB.prepare("UPDATE rules SET status = 'draft' WHERE id = ?1").bind(row.id).run();
+    await h.addEvent(env, 'SYSTEM', 'info', 'rules', `Rules v${row.id} taken out of test (draft again)`);
+    return h.json({ ok: true, id: row.id });
+  }
   if (b.action === 'rollback') {
     // Bring back an older version as a NEW, higher version number (the extension never accepts a lower number).
     const r = await env.DB.prepare("INSERT INTO rules (created_at, status, note, body, released_at) VALUES (?1, 'released', ?2, ?3, ?1)")

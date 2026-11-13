@@ -1,0 +1,15 @@
+import { chromium } from '/home/claude/.npm-global/lib/node_modules/playwright/index.mjs';
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const p = await b.newPage({ viewport: { width: 1360, height: 1000 } });
+const errs = []; p.on('pageerror', (e) => errs.push(e.message));
+await p.goto('http://localhost:8787/admin');
+await p.fill('#adminKey', 'test-admin-key-1234567890'); await p.click('#signin');
+await p.waitForSelector('#app:not([hidden])');
+await p.click('nav#tabs .tab[data-tab="rulesView"]'); await p.waitForTimeout(700);
+await p.click('#loadV13'); await p.waitForTimeout(1000);
+await p.click('#reTest'); await p.click('#rcYes'); await p.waitForTimeout(1000);
+const t1 = await p.textContent('#reTitle'), shown = await p.isVisible('#reUntest');
+await p.click('#reUntest'); const conf = await p.textContent('#reConfirm'); await p.click('#rcYes'); await p.waitForTimeout(1000);
+const t2 = await p.textContent('#reTitle'), del = await p.isVisible('#reDelete'), hid = await p.isHidden('#reUntest');
+console.log({ t1, shown, conf, t2, del, hid, errs });
+await b.close();

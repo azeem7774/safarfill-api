@@ -147,7 +147,7 @@ d = (await get('/admin/api/licence?key=' + std, A)).j;
 ok(d.actions.length > 5, 'recent rows kept after clean-up');
 
 // --- compatibility: old endpoints unchanged
-ok((await get('/v1/ping')).j.version === '1.10.0', 'ping');
+ok((await get('/v1/ping')).j.version === '1.10.1', 'ping');
 
 // --- 6. SafarFill 1.3 starting values, phone + theme in the signed payload, rules_ignored
 const v13 = await post('/admin/api/rules', { action: 'load_v13' }, A);
@@ -171,6 +171,11 @@ ok(ri && ri.detail.startsWith('rules v' + v13.j.id + ': portals.alhind.fields.fi
 open = (await get('/admin/api/licences', A)).j.open;
 ok(open.some((e) => e.code === 'rules_ignored' && e.key === std), 'rules_ignored alert');
 ok((await post('/admin/api/rules', { action: 'delete', id: v13.j.id }, A)).s === 400, 'test version not deletable');
+ok((await post('/admin/api/rules', { action: 'untest', id: v13.j.id }, A)).j.ok, 'stop test');
+list = (await get('/admin/api/rules', A)).j;
+ok(list.versions.find((v) => v.id === v13.j.id).status === 'draft' && list.testers_get === list.live, 'draft again, testers get live');
+ok((await post('/admin/api/rules', { action: 'untest', id: v13.j.id }, A)).s === 400, 'stop test only on a test version');
+ok((await post('/admin/api/rules', { action: 'delete', id: v13.j.id }, A)).j.ok, 'then it can be deleted');
 ok((await post('/v1/session', { key: std, device: 'dev-rules-0001', version: '1.1.3' })).j.licence.portals.length === 4, 'session licence unchanged');
 
 for (const k of [std, st, ex]) await post('/admin/api/action', { key: k, action: 'delete_licence' }, A);
